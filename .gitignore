@@ -19,3 +19,5 @@ cookies.txt
 
 # 输出文件
 output/
+wereader/output/
+llm/outlines/

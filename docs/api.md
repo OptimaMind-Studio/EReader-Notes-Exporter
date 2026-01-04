@@ -186,10 +186,41 @@ POST /web/book/chapterInfos
       - updateTime: 更新时间
       - level: 章节层级
       - isMPChapter: 是否为公众号章节
+      - files: 章节对应的电子书内部文件路径数组（如 `["Text/Chapter_3_1_0005.xhtml"]`），表示该章节在电子书文件结构中的实际文件位置
 
 ---
 
-### 6. 获取书籍阅读进度
+### 6. 获取章节内容
+
+**功能**: 获取指定章节的完整内容（xhtml 格式）
+
+**Endpoint**:
+```
+GET /web/book/chapter?bookId={bookId}&chapterUid={chapterUid}
+```
+或
+```
+GET /web/book/chapterContent?bookId={bookId}&chapterUid={chapterUid}
+```
+
+**请求参数**:
+| 参数名 | 类型 | 必填 | 说明 |
+|--------|------|------|------|
+| bookId | string | 是 | 书籍ID |
+| chapterUid | string | 是 | 章节UID（从章节信息中获取） |
+
+**响应说明**:
+- 返回章节的完整内容，格式为 xhtml
+- 响应可能是 JSON 格式（包含 content/html/text 字段）或直接的 HTML/xhtml 文本
+
+**注意事项**:
+- 此 API 端点可能需要尝试多个可能的路径
+- 需要有效的 Cookie 认证
+- 某些书籍可能无法获取完整内容（受版权保护）
+
+---
+
+### 7. 获取书籍阅读进度
 
 **功能**: 获取指定书籍的阅读进度信息，包括阅读时间、进度百分比等
 
