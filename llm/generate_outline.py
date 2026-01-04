@@ -413,23 +413,46 @@ def process_csv_file(csv_file: str, output_file: Optional[str] = None, api_key: 
     # 初始化生成器
     generator = OutlineGenerator(api_key=api_key, role=role)
     
-    # 每3个章节为一组处理
-    group_size = 3
-    total_groups = (len(chapter_uids) + group_size - 1) // group_size
+    # 按章节分组，每组至少50个笔记
+    min_notes_per_group = 50
     
     print("=" * 60)
-    print(f"开始处理，共 {total_groups} 组（每组 {group_size} 个章节）")
+    print(f"开始处理（每组至少 {min_notes_per_group} 个笔记）")
     print("=" * 60)
     
     all_markdown_parts = []
     all_html_parts = []
     
-    for group_idx in range(total_groups):
-        start_idx = group_idx * group_size
-        end_idx = min(start_idx + group_size, len(chapter_uids))
-        group_chapters = chapter_uids[start_idx:end_idx]
+    i = 0
+    group_idx = 0
+    
+    while i < len(chapter_uids):
+        # 收集当前组的所有章节
+        group_chapters = []
+        total_notes = 0
         
-        print(f"\n[组 {group_idx + 1}/{total_groups}] 处理章节: {group_chapters}")
+        # 从当前章节开始，累积到至少50个笔记
+        j = i
+        while j < len(chapter_uids) and total_notes < min_notes_per_group:
+            chapter_uid = chapter_uids[j]
+            chapter_rows = chapters_dict[chapter_uid]
+            # 统计该章节的笔记数量（有 markText 的行）
+            notes_count = len([row for row in chapter_rows if row.get('markText', '').strip()])
+            
+            group_chapters.append(chapter_uid)
+            total_notes += notes_count
+            j += 1
+        
+        if not group_chapters:
+            break
+        
+        group_idx += 1
+        
+        # 计算总组数（估算，因为分组是动态的）
+        remaining_chapters = len(chapter_uids) - j
+        estimated_total_groups = group_idx + (remaining_chapters + min_notes_per_group - 1) // min_notes_per_group
+        
+        print(f"\n[组 {group_idx}] 处理章节: {group_chapters[0]}-{group_chapters[-1]}（{len(group_chapters)} 个章节，{total_notes} 条笔记）")
         
         # 收集这组章节的划线笔记和点评笔记
         mark_notes_parts = []  # 划线笔记（包含章节标题和划线文本）
@@ -461,6 +484,7 @@ def process_csv_file(csv_file: str, output_file: Optional[str] = None, api_key: 
         
         if not mark_notes_parts:
             print(f"  跳过空组")
+            i = j
             continue
         
         # 格式化划线笔记（章节标题和划线文本，用空行分隔）
@@ -478,12 +502,12 @@ def process_csv_file(csv_file: str, output_file: Optional[str] = None, api_key: 
         outline_result = generator.generate_outline(mark_notes_text, review_notes_text)
         
         # 添加组标题
-        group_title_md = f"# 第 {group_idx + 1} 组：章节 {group_chapters[0]}-{group_chapters[-1]}\n\n"
+        group_title_md = f"# 第 {group_idx} 组：章节 {group_chapters[0]}-{group_chapters[-1]}\n\n"
         group_title_md += f"**章节名称**: {', '.join(chapter_names)}\n\n"
         group_title_md += f"**章节ID**: {', '.join(map(str, group_chapters))}\n\n"
         group_title_md += "---\n\n"
         
-        group_title_html = f"<h1>第 {group_idx + 1} 组：章节 {group_chapters[0]}-{group_chapters[-1]}</h1>\n"
+        group_title_html = f"<h1>第 {group_idx} 组：章节 {group_chapters[0]}-{group_chapters[-1]}</h1>\n"
         group_title_html += f"<p><strong>章节名称</strong>: {', '.join(chapter_names)}</p>\n"
         group_title_html += f"<p><strong>章节ID</strong>: {', '.join(map(str, group_chapters))}</p>\n"
         group_title_html += "<hr>\n"
@@ -494,8 +518,11 @@ def process_csv_file(csv_file: str, output_file: Optional[str] = None, api_key: 
         
         print(f"  ✓ 完成")
         
+        # 移动到下一组（从最后一个已处理的章节的下一个开始）
+        i = j
+        
         # 添加延迟，避免 API 请求过快
-        if group_idx < total_groups - 1:
+        if i < len(chapter_uids):
             time.sleep(0.5)
     
     # 关闭客户端

@@ -8,7 +8,9 @@
 - 🔖 批量导出每本书的书签（划线）
 - 💬 批量导出每本书的评论（想法）
 - 📝 合并书签和评论为统一的笔记文件
-- 📊 支持 CSV 格式导出
+- 🧠 使用 Gemini API 提取概念词并生成定义
+- 📋 使用 Gemini API 生成学习大纲
+- 📊 支持 CSV、Markdown、HTML 格式导出
 
 ## 安装
 
@@ -120,17 +122,100 @@ python scripts/fetch_reviews.py [cookie_file_path] [books_csv_file]
 python scripts/merge_notes.py [books_csv_file] [bookmarks_dir] [reviews_dir] [output_dir]
 ```
 
+#### 步骤 5：提取概念词
+
+**脚本**：`llm/extract_concepts.py`
+
+**功能**：从合并后的笔记 CSV 文件中提取概念词，使用 Gemini API 生成概念定义。
+
+**处理流程**：
+
+1. **提取概念词**：
+   - 按章节分组笔记（每组至少30个笔记，不足时合并下一章节）
+   - 使用 Gemini API 从每组文本中提取概念词（只返回概念名称）
+   
+2. **概念去重**：
+   - 将所有提取的概念词发送给 Gemini
+   - 从概念和形式两个维度进行去重
+   
+3. **生成概念详细信息**：
+   - 获取每个概念在领域中的子分类（category）
+   - 找到概念词出现次数最多的章节组（至少30个笔记）
+   - 生成 HTML 格式的详细定义（70%+ 内容来自原文）
+   - 生成短定义（30字符以内）
+
+**输出字段**：`concept`, `domain`, `category`, `source`, `sentences`, `short_definition`, `definition`
+
+**输出**：`wereader/output/definitions/{book_id}_concepts.csv`
+
+**运行**：
+```bash
+# 需要设置 GEMINI_API_KEY 或 GOOGLE_API_KEY 环境变量
+export GEMINI_API_KEY='your_api_key'
+python llm/extract_concepts.py wereader/output/notes/{book_id}.csv
+```
+
+**注意事项**：
+- 需要有效的 Gemini API 密钥
+- 按章节分组处理，每组至少30个笔记
+- 生成定义时会使用概念出现最多的章节组文本
+
+#### 步骤 6：生成学习大纲
+
+**脚本**：`llm/generate_outline.py`
+
+**功能**：从合并后的笔记 CSV 文件中生成结构化的学习大纲，使用 Gemini API 进行智能总结。
+
+**处理流程**：
+
+1. **按章节分组**：
+   - 读取笔记 CSV 文件
+   - 按 `chapterUid` 分组
+   - 每3个章节为一组处理
+   
+2. **收集笔记**：
+   - 收集每组的划线笔记（markText）和点评笔记（reviewContent）
+   - 格式化笔记内容
+   
+3. **生成大纲**：
+   - 使用 Gemini API 生成结构化的学习大纲
+   - 包括：层级概念块、关键概念词、个人思考内化
+   - 输出 HTML 格式（包含中英文对照）
+
+**输出**：
+- `llm/outlines/{book_id}_outline.md` - Markdown 格式
+- `llm/outlines/{book_id}_outline.html` - HTML 格式
+
+**运行**：
+```bash
+# 需要设置 GEMINI_API_KEY 或 GOOGLE_API_KEY 环境变量
+export GEMINI_API_KEY='your_api_key'
+python llm/generate_outline.py wereader/output/notes/{book_id}.csv
+```
+
+**注意事项**：
+- 需要有效的 Gemini API 密钥
+- 每3个章节为一组生成大纲
+- 输出包含中英文对照的 HTML 格式
+
 ## 输出目录结构
 
 ```
-output/
+wereader/
 ├── fetch_notebooks_output.csv    # 书籍列表
 ├── bookmarks/                    # 书签目录
 │   └── {book_id}.csv
 ├── reviews/                      # 评论目录
 │   └── {book_id}.csv
-└── notes/                        # 合并后的笔记目录
-    └── {book_id}.csv
+├── notes/                        # 合并后的笔记目录
+│   └── {book_id}.csv
+└── definitions/                  # 概念提取目录
+    └── {book_id}_concepts.csv
+
+llm/
+└── outlines/                     # 学习大纲目录
+    ├── {book_id}_outline.md
+    └── {book_id}_outline.html
 ```
 
 ## 常见问题
