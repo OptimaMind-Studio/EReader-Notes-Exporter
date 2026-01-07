@@ -302,9 +302,15 @@ class ConceptExtractor:
             else:
                 html_content = f"<p>无法生成定义</p>"
             
-            # 清理可能的 markdown 代码块标记
+            # 清理可能的 markdown 代码块标记和引号
             html_content = re.sub(r'^```[a-z]*\n?', '', html_content, flags=re.MULTILINE)
             html_content = re.sub(r'\n?```$', '', html_content, flags=re.MULTILINE)
+            html_content = html_content.strip()
+            # 移除前后引号（如果存在）
+            if html_content.startswith('"') and html_content.endswith('"'):
+                html_content = html_content[1:-1]
+            if html_content.startswith("'") and html_content.endswith("'"):
+                html_content = html_content[1:-1]
             
             return html_content.strip()
             

@@ -11,6 +11,7 @@ import csv
 import time
 import argparse
 import asyncio
+import re
 from pathlib import Path
 from typing import Optional, List, Dict
 from datetime import datetime
@@ -77,6 +78,19 @@ class GuidebookGenerator:
             else:
                 explanation = str(response)
             
+            explanation = explanation.strip()
+            
+            # 清理可能的 markdown 代码块标记和引号
+            # 移除 markdown 代码块标记（```html, ```, 等）
+            explanation = re.sub(r'^```[a-z]*\n?', '', explanation, flags=re.MULTILINE)
+            explanation = re.sub(r'\n?```$', '', explanation, flags=re.MULTILINE)
+            # 移除前后引号（如果存在）
+            explanation = explanation.strip()
+            if explanation.startswith('"') and explanation.endswith('"'):
+                explanation = explanation[1:-1]
+            if explanation.startswith("'") and explanation.endswith("'"):
+                explanation = explanation[1:-1]
+            
             return explanation.strip()
         
         except Exception as e:
@@ -123,6 +137,18 @@ class GuidebookGenerator:
             else:
                 explanation = str(response)
             
+            explanation = explanation.strip()
+            
+            # 清理可能的 markdown 代码块标记和引号
+            # 移除 markdown 代码块标记（```html, ```, 等）
+            explanation = re.sub(r'^```[a-z]*\n?', '', explanation, flags=re.MULTILINE)
+            explanation = re.sub(r'\n?```$', '', explanation, flags=re.MULTILINE)
+            # 移除前后引号（如果存在）
+            explanation = explanation.strip()
+            if explanation.startswith('"') and explanation.endswith('"'):
+                explanation = explanation[1:-1]
+            if explanation.startswith("'") and explanation.endswith("'"):
+                explanation = explanation[1:-1]
             explanation = explanation.strip()
             
             # 打印结束日志

@@ -159,6 +159,13 @@ class OutlineGenerator:
                 response_text = re.sub(r'\n?```$', '', response_text, flags=re.MULTILINE)
                 response_text = response_text.strip()
                 
+                # 移除前后引号（如果存在）
+                if response_text.startswith('"') and response_text.endswith('"'):
+                    response_text = response_text[1:-1]
+                if response_text.startswith("'") and response_text.endswith("'"):
+                    response_text = response_text[1:-1]
+                response_text = response_text.strip()
+                
                 # 验证和清理 HTML
                 html_content = self._validate_and_clean_html(response_text)
                 
