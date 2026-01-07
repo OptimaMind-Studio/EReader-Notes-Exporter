@@ -10,6 +10,7 @@ import json
 import sys
 import os
 import csv
+import argparse
 from typing import Optional, Dict, Any, List
 from pathlib import Path
 
@@ -335,19 +336,40 @@ def main():
     script_dir = Path(__file__).parent.parent
     default_cookie_file = script_dir / "cookies.txt"
     
+    parser = argparse.ArgumentParser(
+        description='WeRead Notebook Fetcher: 从 WeRead API 获取用户笔记本并保存到本地文件',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=f"""
+示例：
+  python fetch_books.py --cookie cookies.txt
+  python fetch_books.py --cookie "wr_name=xxx; wr_skey=yyy; ..."
+  python fetch_books.py --cookie cookies.txt --book-id 3300064831
+  
+环境变量：
+  export WEREAD_COOKIE='your_cookie_string'
+  
+默认 Cookie 文件：
+  {default_cookie_file}
+        """
+    )
+    
+    parser.add_argument('--cookie', '--cookie-file', dest='cookie', type=str, default=None,
+                       help='Cookie 文件路径或 Cookie 字符串（可选，优先从环境变量 WEREAD_COOKIE 或默认文件读取）')
+    parser.add_argument('--book-id', '--id', dest='book_id', type=str, default=None,
+                       help='书籍ID（可选，如果提供则只获取该书籍）')
+    
+    args = parser.parse_args()
+    
+    # Get cookie (priority: 1. command line, 2. environment variable, 3. default file)
     cookie = None
     
-    # Priority: 1. Command line argument (cookie file path or cookie string)
-    #           2. Environment variable
-    #           3. Default cookie file
-    if len(sys.argv) > 1:
-        arg = sys.argv[1]
+    if args.cookie:
         # Check if argument is a file path
-        if os.path.exists(arg) or arg.endswith('.txt'):
-            cookie = parse_netscape_cookie_file(arg)
+        if os.path.exists(args.cookie) or args.cookie.endswith('.txt'):
+            cookie = parse_netscape_cookie_file(args.cookie)
         else:
             # Treat as cookie string
-            cookie = arg
+            cookie = args.cookie
     elif 'WEREAD_COOKIE' in os.environ:
         cookie = os.environ['WEREAD_COOKIE']
     elif default_cookie_file.exists():
@@ -355,26 +377,14 @@ def main():
         cookie = parse_netscape_cookie_file(str(default_cookie_file))
     
     if not cookie:
-        print("Usage:")
-        print("  python fetch_notebooks.py [cookie_file_path|cookie_string] [book_id]")
-        print("  or")
-        print("  export WEREAD_COOKIE='your_cookie_string'")
-        print("  python fetch_notebooks.py [book_id]")
-        print("\nIf no arguments provided, will try to read from:")
-        print(f"  {default_cookie_file}")
-        print("\nArguments:")
-        print("  cookie_file_path|cookie_string: Cookie file path or cookie string")
-        print("  book_id: Optional book ID to filter (if not provided, fetches all books)")
-        print("\nExample:")
-        print('  python fetch_notebooks.py "wr_name=xxx; wr_skey=yyy; ..."')
-        print(f'  python fetch_notebooks.py "{default_cookie_file}"')
-        print(f'  python fetch_notebooks.py "{default_cookie_file}" 3300064831')
+        print("错误：未找到 Cookie")
+        print("请通过以下方式提供 Cookie：")
+        print("  1. 使用 --cookie 参数指定文件路径或 Cookie 字符串")
+        print("  2. 设置环境变量 WEREAD_COOKIE")
+        print(f"  3. 将 Cookie 文件放在默认位置: {default_cookie_file}")
         sys.exit(1)
     
-    # Get book ID filter (optional)
-    filter_book_id = None
-    if len(sys.argv) > 2:
-        filter_book_id = sys.argv[2]
+    filter_book_id = args.book_id
     
     # Initialize API client
     api = WeReadAPI(cookie)

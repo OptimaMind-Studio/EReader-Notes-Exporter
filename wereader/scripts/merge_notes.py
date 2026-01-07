@@ -9,6 +9,7 @@ import csv
 import sys
 import os
 import re
+import argparse
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from collections import defaultdict
@@ -288,32 +289,48 @@ def main():
     default_reviews_dir = script_dir / "output" / "reviews"
     default_output_dir = script_dir / "output" / "notes"
     
-    # Get CSV file path
-    csv_file = str(default_csv_file)
-    if len(sys.argv) > 1:
-        csv_file = sys.argv[1]
+    parser = argparse.ArgumentParser(
+        description='WeRead Notes Merger: 将书签和点评合并为统一的笔记 CSV 文件',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=f"""
+示例：
+  python merge_notes.py
+  python merge_notes.py --csv-file output/books.csv
+  python merge_notes.py --book-id 3300064831
+  
+默认路径：
+  CSV 文件: {default_csv_file}
+  书签目录: {default_bookmarks_dir}
+  点评目录: {default_reviews_dir}
+  输出目录: {default_output_dir}
+        """
+    )
     
+    parser.add_argument('--csv-file', '--csv', dest='csv_file', type=str, default=str(default_csv_file),
+                       help=f'包含书籍列表的 CSV 文件路径（默认: {default_csv_file}）')
+    parser.add_argument('--bookmarks-dir', '--bookmarks', dest='bookmarks_dir', type=str, default=str(default_bookmarks_dir),
+                       help=f'书签文件目录（默认: {default_bookmarks_dir}）')
+    parser.add_argument('--reviews-dir', '--reviews', dest='reviews_dir', type=str, default=str(default_reviews_dir),
+                       help=f'点评文件目录（默认: {default_reviews_dir}）')
+    parser.add_argument('--output-dir', '--output', dest='output_dir', type=str, default=str(default_output_dir),
+                       help=f'合并后的笔记输出目录（默认: {default_output_dir}）')
+    parser.add_argument('--book-id', '--id', dest='book_id', type=str, default=None,
+                       help='书籍ID（可选，如果提供则只处理该书籍）')
+    
+    args = parser.parse_args()
+    
+    # Get CSV file path
+    csv_file = args.csv_file
     if not os.path.exists(csv_file):
-        print(f"Error: CSV file not found: {csv_file}")
+        print(f"错误：CSV 文件不存在: {csv_file}")
         sys.exit(1)
     
     # Get directories
-    bookmarks_dir = str(default_bookmarks_dir)
-    if len(sys.argv) > 2:
-        bookmarks_dir = sys.argv[2]
+    bookmarks_dir = args.bookmarks_dir
+    reviews_dir = args.reviews_dir
+    output_dir = args.output_dir
     
-    reviews_dir = str(default_reviews_dir)
-    if len(sys.argv) > 3:
-        reviews_dir = sys.argv[3]
-    
-    output_dir = str(default_output_dir)
-    if len(sys.argv) > 4:
-        output_dir = sys.argv[4]
-    
-    # Get book ID filter (optional)
-    filter_book_id = None
-    if len(sys.argv) > 5:
-        filter_book_id = sys.argv[5]
+    filter_book_id = args.book_id
     
     # Read book IDs from CSV
     books = read_book_ids_from_csv(csv_file)

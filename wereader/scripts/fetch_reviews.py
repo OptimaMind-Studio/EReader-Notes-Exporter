@@ -10,6 +10,7 @@ import json
 import csv
 import sys
 import os
+import argparse
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 import time
@@ -240,49 +241,62 @@ def main():
     default_csv_file = script_dir / "output" / "fetch_notebooks_output.csv"
     default_output_dir = script_dir / "output" / "reviews"
     
+    parser = argparse.ArgumentParser(
+        description='WeRead Review Fetcher: 从 CSV 文件中读取书籍列表，获取每本书的点评并保存到单独的 CSV 文件',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=f"""
+示例：
+  python fetch_reviews.py --cookie cookies.txt
+  python fetch_reviews.py --cookie cookies.txt --csv-file output/books.csv
+  python fetch_reviews.py --cookie cookies.txt --book-id 3300064831
+  
+默认路径：
+  Cookie 文件: {default_cookie_file}
+  CSV 文件: {default_csv_file}
+  输出目录: {default_output_dir}
+        """
+    )
+    
+    parser.add_argument('--cookie', '--cookie-file', dest='cookie', type=str, default=None,
+                       help=f'Cookie 文件路径或 Cookie 字符串（可选，默认从 {default_cookie_file} 读取）')
+    parser.add_argument('--csv-file', '--csv', dest='csv_file', type=str, default=str(default_csv_file),
+                       help=f'包含书籍列表的 CSV 文件路径（默认: {default_csv_file}）')
+    parser.add_argument('--output-dir', '--output', dest='output_dir', type=str, default=str(default_output_dir),
+                       help=f'点评输出目录（默认: {default_output_dir}）')
+    parser.add_argument('--book-id', '--id', dest='book_id', type=str, default=None,
+                       help='书籍ID（可选，如果提供则只处理该书籍）')
+    
+    args = parser.parse_args()
+    
     # Get cookie
     cookie = None
     
-    if len(sys.argv) > 1:
-        arg = sys.argv[1]
-        if os.path.exists(arg) or arg.endswith('.txt'):
-            cookie = parse_netscape_cookie_file(arg)
+    if args.cookie:
+        if os.path.exists(args.cookie) or args.cookie.endswith('.txt'):
+            cookie = parse_netscape_cookie_file(args.cookie)
         else:
-            cookie = arg
+            cookie = args.cookie
     elif default_cookie_file.exists():
         cookie = parse_netscape_cookie_file(str(default_cookie_file))
     
     if not cookie:
-        print("Error: Cookie not found. Please provide cookie file or string.")
-        print(f"Usage: python fetch_reviews.py [cookie_file|cookie_string] [csv_file] [output_dir] [book_id]")
-        print("\nArguments:")
-        print("  cookie_file|cookie_string: Cookie file path or cookie string")
-        print("  csv_file: Path to CSV file with book list (default: output/fetch_notebooks_output.csv)")
-        print("  output_dir: Output directory for reviews (default: output/reviews)")
-        print("  book_id: Optional book ID to filter (if not provided, processes all books)")
+        print("错误：未找到 Cookie")
+        print(f"请使用 --cookie 参数指定 Cookie 文件或字符串，或将 Cookie 文件放在: {default_cookie_file}")
         sys.exit(1)
     
     # Get CSV file path
-    csv_file = default_csv_file
-    if len(sys.argv) > 2:
-        csv_file = sys.argv[2]
-    
+    csv_file = args.csv_file
     if not os.path.exists(csv_file):
-        print(f"Error: CSV file not found: {csv_file}")
+        print(f"错误：CSV 文件不存在: {csv_file}")
         sys.exit(1)
     
     # Get output directory
-    output_dir = str(default_output_dir)
-    if len(sys.argv) > 3:
-        output_dir = sys.argv[3]
+    output_dir = args.output_dir
     
     # Initialize API client
     api = WeReadReviewAPI(cookie)
     
-    # Get book ID filter (optional)
-    filter_book_id = None
-    if len(sys.argv) > 4:
-        filter_book_id = sys.argv[4]
+    filter_book_id = args.book_id
     
     # Read book IDs from CSV
     books = read_book_ids_from_csv(csv_file)

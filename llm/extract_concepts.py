@@ -11,6 +11,7 @@ import csv
 import json
 import time
 import re
+import argparse
 from pathlib import Path
 from typing import Optional, List, Dict, Set
 from collections import defaultdict
@@ -379,18 +380,113 @@ def read_csv_file(csv_file: str) -> List[Dict[str, str]]:
     return rows
 
 
-def process_csv_file(csv_file: str, output_file: Optional[str] = None, api_key: Optional[str] = None):
+def find_book_id_by_title(csv_file: str, book_title: str) -> Optional[str]:
+    """
+    根据书名在 CSV 文件中查找 bookId
+    
+    Args:
+        csv_file: CSV 文件路径
+        book_title: 书名
+    
+    Returns:
+        bookId，如果未找到则返回 None
+    """
+    try:
+        with open(csv_file, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                title = row.get('title', '').strip()
+                if title == book_title:
+                    return row.get('bookId', '').strip()
+        return None
+    except Exception as e:
+        print(f"错误：读取 CSV 文件失败: {e}")
+        return None
+
+
+def find_book_by_id(csv_file: str, book_id: str) -> Optional[Dict[str, str]]:
+    """
+    根据 bookId 在 CSV 文件中查找书籍信息
+    
+    Args:
+        csv_file: CSV 文件路径
+        book_id: 书籍ID
+    
+    Returns:
+        书籍信息字典，如果未找到则返回 None
+    """
+    try:
+        with open(csv_file, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                if row.get('bookId', '').strip() == book_id:
+                    return {
+                        'bookId': book_id,
+                        'title': row.get('title', '').strip(),
+                        'author': row.get('author', '').strip(),
+                        'categories': row.get('categories', '').strip()
+                    }
+        return None
+    except Exception as e:
+        print(f"错误：读取 CSV 文件失败: {e}")
+        return None
+
+
+def process_csv_file(book_id: Optional[str] = None, book_title: Optional[str] = None, output_file: Optional[str] = None, api_key: Optional[str] = None):
     """
     处理 CSV 文件，提取概念
     
     Args:
-        csv_file: 输入的 CSV 文件路径
+        book_id: 书籍ID（与 book_title 二选一）
+        book_title: 书名（与 book_id 二选一）
         output_file: 输出的 CSV 文件路径
         api_key: Gemini API 密钥
     """
+    # 获取脚本所在目录
+    script_dir = Path(__file__).parent
+    project_root = script_dir.parent
+    
+    # 默认路径
+    notebooks_csv = project_root / "wereader" / "output" / "fetch_notebooks_output.csv"
+    notes_dir = project_root / "wereader" / "output" / "notes"
+    
+    # 1. 确定 bookId 和书籍信息
+    book_info = None
+    
+    if book_id:
+        # 如果提供了 bookId，直接使用
+        print(f"使用 bookId: {book_id}")
+        book_info = find_book_by_id(str(notebooks_csv), book_id)
+        if not book_info:
+            print(f"错误：未找到 bookId '{book_id}' 对应的书籍")
+            return
+        book_id = book_info['bookId']
+        book_title_display = book_info['title']
+    elif book_title:
+        # 如果提供了书名，查找对应的 bookId
+        print(f"正在查找书名：{book_title}")
+        book_id = find_book_id_by_title(str(notebooks_csv), book_title)
+        if not book_id:
+            print(f"错误：未找到书名 '{book_title}' 对应的 bookId")
+            return
+        book_info = find_book_by_id(str(notebooks_csv), book_id)
+        book_title_display = book_title
+    else:
+        print("错误：必须提供 bookId 或 book_title 之一")
+        return
+    
+    print(f"找到书籍: {book_title_display} (ID: {book_id})\n")
+    
+    # 2. 构建 CSV 文件路径
+    csv_file = notes_dir / f"{book_id}.csv"
+    
+    if not csv_file.exists():
+        print(f"错误：笔记文件不存在: {csv_file}")
+        return
+    
     # 读取 CSV 文件
     print(f"正在读取文件: {csv_file}")
-    rows = read_csv_file(csv_file)
+    rows = read_csv_file(str(csv_file))
     
     if not rows:
         print("错误：文件中没有有效数据")
@@ -398,11 +494,14 @@ def process_csv_file(csv_file: str, output_file: Optional[str] = None, api_key: 
     
     print(f"共读取 {len(rows)} 行数据")
     
-    # 获取书籍信息
-    first_row = rows[0]
-    book_title = first_row.get('title', '未知书籍')
-    domain = first_row.get('categories', '未知领域')
-    book_id = first_row.get('bookId', '')
+    # 获取书籍信息（优先使用从 CSV 查找的信息）
+    if book_info:
+        book_title = book_info.get('title', '未知书籍')
+        domain = book_info.get('categories', '未知领域')
+    else:
+        first_row = rows[0] if rows else {}
+        book_title = first_row.get('title', book_title_display if 'book_title_display' in locals() else '未知书籍')
+        domain = first_row.get('categories', '未知领域')
     
     print(f"书籍: {book_title}")
     print(f"领域: {domain}\n")
@@ -528,8 +627,8 @@ def process_csv_file(csv_file: str, output_file: Optional[str] = None, api_key: 
     
     # 保存到 CSV
     if output_file is None:
-        script_dir = Path(__file__).parent.parent
-        output_dir = script_dir / "wereader" / "output" / "definitions"
+        script_dir = Path(__file__).parent
+        output_dir = script_dir / "output" / "concepts"
         output_dir.mkdir(parents=True, exist_ok=True)
         output_file = output_dir / f"{book_id}_concepts.csv"
     else:
@@ -554,22 +653,47 @@ def process_csv_file(csv_file: str, output_file: Optional[str] = None, api_key: 
 
 def main():
     """主函数"""
-    if len(sys.argv) < 2:
-        print("用法: python extract_concepts.py <csv_file> [output_file]")
-        print("示例: python extract_concepts.py wereader/output/notes/3300064831.csv")
-        sys.exit(1)
+    parser = argparse.ArgumentParser(
+        description='概念提取工具：从笔记 CSV 文件中提取概念词，使用 Gemini API 生成定义',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+示例：
+  # 使用 bookID
+  python extract_concepts.py --book-id 3300089819
+  python extract_concepts.py --book-id 3300089819 --output llm/output/concepts/book_concepts.csv
+  
+  # 使用书名
+  python extract_concepts.py --title "书名"
+        """
+    )
     
-    csv_file = sys.argv[1]
-    output_file = sys.argv[2] if len(sys.argv) > 2 else None
+    # 书名和 bookID 二选一
+    book_group = parser.add_mutually_exclusive_group(required=True)
+    book_group.add_argument('--title', '--book-title', dest='book_title', type=str,
+                           help='书籍名称')
+    book_group.add_argument('--book-id', '--id', dest='book_id', type=str,
+                           help='书籍ID')
     
-    # 获取 API 密钥
-    api_key = os.environ.get('GOOGLE_API_KEY') or os.environ.get('GEMINI_API_KEY')
+    parser.add_argument('--output', '--output-file', dest='output_file', type=str, default=None,
+                       help='输出的概念 CSV 文件路径（可选，默认自动生成到 llm/output/concepts/）')
+    parser.add_argument('--api-key', type=str,
+                       help='Gemini API 密钥（可选，优先从环境变量 GEMINI_API_KEY 或 GOOGLE_API_KEY 读取）')
+    
+    args = parser.parse_args()
+    
+    # 获取 API 密钥（优先从命令行参数，其次从环境变量）
+    api_key = args.api_key or os.environ.get('GOOGLE_API_KEY') or os.environ.get('GEMINI_API_KEY')
     
     if not api_key:
-        print("错误：请设置 GEMINI_API_KEY 或 GOOGLE_API_KEY 环境变量")
+        print("错误：请设置 GEMINI_API_KEY 或 GOOGLE_API_KEY 环境变量，或使用 --api-key 参数")
         sys.exit(1)
     
-    process_csv_file(csv_file, output_file, api_key)
+    process_csv_file(
+        book_id=args.book_id,
+        book_title=args.book_title,
+        output_file=args.output_file,
+        api_key=api_key
+    )
 
 
 if __name__ == "__main__":

@@ -8,6 +8,7 @@ Sequentially executes all data fetching and merging scripts
 import subprocess
 import sys
 import os
+import argparse
 from pathlib import Path
 
 
@@ -50,20 +51,30 @@ def run_script(script_path: str, description: str, *args) -> bool:
 
 def main():
     """Main function to run all scripts in sequence"""
+    parser = argparse.ArgumentParser(
+        description='WeRead Data Pipeline: 依次执行所有数据获取和合并脚本',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+示例：
+  python main.py
+  python main.py --book-id 3300064831
+        """
+    )
+    
+    parser.add_argument('--book-id', '--id', dest='book_id', type=str, default=None,
+                       help='书籍ID（可选，如果提供则只处理该书籍）')
+    
+    args = parser.parse_args()
+    
     # Get script directory
     script_dir = Path(__file__).parent
     scripts_dir = script_dir / "scripts"
     
-    # Get book ID filter (optional)
-    filter_book_id = None
-    if len(sys.argv) > 1:
-        filter_book_id = sys.argv[1]
-    
     print("="*60)
     print("WeRead Data Pipeline")
     print("="*60)
-    if filter_book_id:
-        print(f"\nFiltering to book ID: {filter_book_id}")
+    if args.book_id:
+        print(f"\nFiltering to book ID: {args.book_id}")
     else:
         print("\nProcessing all books")
     print("\nThis script will execute the following steps:")
@@ -81,11 +92,9 @@ def main():
     default_output_dir = script_dir / "output" / "notes"
     
     # Step 1: Fetch books
-    # fetch_books.py: [cookie] [book_id]
-    # We need to explicitly pass cookie file path so book_id can be passed correctly
-    fetch_books_args = [str(default_cookie_file)]
-    if filter_book_id:
-        fetch_books_args.append(filter_book_id)
+    fetch_books_args = ['--cookie', str(default_cookie_file)]
+    if args.book_id:
+        fetch_books_args.extend(['--book-id', args.book_id])
     
     success = run_script(
         scripts_dir / "fetch_books.py",
@@ -97,17 +106,13 @@ def main():
         sys.exit(1)
     
     # Step 2: Fetch bookmarks
-    # fetch_bookmarks.py: [cookie] [csv_file] [output_dir] [book_id]
-    # We need to pass all parameters to reach book_id position
-    fetch_bookmarks_args = []
-    if filter_book_id:
-        # Pass cookie file, csv_file, output_dir, and book_id
-        fetch_bookmarks_args = [
-            str(default_cookie_file),
-            str(default_csv_file),
-            str(default_bookmarks_dir),
-            filter_book_id
-        ]
+    fetch_bookmarks_args = [
+        '--cookie', str(default_cookie_file),
+        '--csv-file', str(default_csv_file),
+        '--output-dir', str(default_bookmarks_dir)
+    ]
+    if args.book_id:
+        fetch_bookmarks_args.extend(['--book-id', args.book_id])
     
     success = run_script(
         scripts_dir / "fetch_bookmarks.py",
@@ -118,15 +123,13 @@ def main():
         print("\nWarning: Failed to fetch bookmarks. Continuing with next step...")
     
     # Step 3: Fetch reviews
-    # fetch_reviews.py: [cookie] [csv_file] [output_dir] [book_id]
-    fetch_reviews_args = []
-    if filter_book_id:
-        fetch_reviews_args = [
-            str(default_cookie_file),
-            str(default_csv_file),
-            str(default_reviews_dir),
-            filter_book_id
-        ]
+    fetch_reviews_args = [
+        '--cookie', str(default_cookie_file),
+        '--csv-file', str(default_csv_file),
+        '--output-dir', str(default_reviews_dir)
+    ]
+    if args.book_id:
+        fetch_reviews_args.extend(['--book-id', args.book_id])
     
     success = run_script(
         scripts_dir / "fetch_reviews.py",
@@ -137,16 +140,14 @@ def main():
         print("\nWarning: Failed to fetch reviews. Continuing with next step...")
     
     # Step 4: Merge notes
-    # merge_notes.py: [csv_file] [bookmarks_dir] [reviews_dir] [output_dir] [book_id]
-    merge_notes_args = []
-    if filter_book_id:
-        merge_notes_args = [
-            str(default_csv_file),
-            str(default_bookmarks_dir),
-            str(default_reviews_dir),
-            str(default_output_dir),
-            filter_book_id
-        ]
+    merge_notes_args = [
+        '--csv-file', str(default_csv_file),
+        '--bookmarks-dir', str(default_bookmarks_dir),
+        '--reviews-dir', str(default_reviews_dir),
+        '--output-dir', str(default_output_dir)
+    ]
+    if args.book_id:
+        merge_notes_args.extend(['--book-id', args.book_id])
     
     success = run_script(
         scripts_dir / "merge_notes.py",
@@ -161,8 +162,8 @@ def main():
     print("Pipeline Execution Complete")
     print("="*60)
     print("\nAll scripts have been executed.")
-    if filter_book_id:
-        print(f"Processed book ID: {filter_book_id}")
+    if args.book_id:
+        print(f"Processed book ID: {args.book_id}")
     else:
         print("Processed all books")
     print("\nCheck the output directories for results:")
