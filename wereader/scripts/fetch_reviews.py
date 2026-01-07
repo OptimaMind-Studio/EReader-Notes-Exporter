@@ -207,7 +207,9 @@ def save_reviews_to_csv(reviews: List[Dict], book_id: str, book_metadata: Dict[s
     
     # Write CSV file
     with open(file_path, 'w', encoding='utf-8', newline='') as f:
-        writer = csv.DictWriter(f, fieldnames=columns, extrasaction='ignore')
+        # Use QUOTE_MINIMAL to properly quote fields containing special characters or newlines
+        writer = csv.DictWriter(f, fieldnames=columns, extrasaction='ignore',
+                                quoting=csv.QUOTE_MINIMAL)
         writer.writeheader()
         
         for review in reviews:
@@ -223,7 +225,8 @@ def save_reviews_to_csv(reviews: List[Dict], book_id: str, book_metadata: Dict[s
                 if value is None:
                     row[col] = ''
                 else:
-                    row[col] = str(value)
+                    # Replace newlines with spaces for better CSV readability
+                    row[col] = str(value).replace('\n', ' ').replace('\r', ' ')
             writer.writerow(row)
     
     return str(file_path)
@@ -251,7 +254,12 @@ def main():
     
     if not cookie:
         print("Error: Cookie not found. Please provide cookie file or string.")
-        print(f"Usage: python fetch_reviews.py [cookie_file|cookie_string] [csv_file] [output_dir]")
+        print(f"Usage: python fetch_reviews.py [cookie_file|cookie_string] [csv_file] [output_dir] [book_id]")
+        print("\nArguments:")
+        print("  cookie_file|cookie_string: Cookie file path or cookie string")
+        print("  csv_file: Path to CSV file with book list (default: output/fetch_notebooks_output.csv)")
+        print("  output_dir: Output directory for reviews (default: output/reviews)")
+        print("  book_id: Optional book ID to filter (if not provided, processes all books)")
         sys.exit(1)
     
     # Get CSV file path
@@ -271,12 +279,25 @@ def main():
     # Initialize API client
     api = WeReadReviewAPI(cookie)
     
+    # Get book ID filter (optional)
+    filter_book_id = None
+    if len(sys.argv) > 4:
+        filter_book_id = sys.argv[4]
+    
     # Read book IDs from CSV
     books = read_book_ids_from_csv(csv_file)
     
     if not books:
         print("No books found in CSV file.")
         sys.exit(1)
+    
+    # Filter by book ID if provided
+    if filter_book_id:
+        books = [book for book in books if book.get('bookId', '') == filter_book_id]
+        if not books:
+            print(f"No book found with ID: {filter_book_id}")
+            sys.exit(1)
+        print(f"Filtering to book ID: {filter_book_id}")
     
     print(f"\nStarting to fetch reviews for {len(books)} book(s)...\n")
     

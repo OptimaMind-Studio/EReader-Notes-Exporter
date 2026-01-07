@@ -8,6 +8,7 @@ Merges bookmarks and reviews into unified notes CSV files
 import csv
 import sys
 import os
+import re
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from collections import defaultdict
@@ -186,6 +187,17 @@ def merge_notes(bookmarks: List[Dict], reviews: List[Dict], book_metadata: Dict[
     seen_marktext = {}
     deduplicated_notes = []
     
+    def normalize_marktext(text: str) -> str:
+        """Normalize markText for comparison by removing invisible characters and extra whitespace"""
+        if not text:
+            return ''
+        # Remove zero-width characters and other invisible Unicode characters
+        # Remove U+FEFF (zero-width no-break space), U+200B (zero-width space), U+FFFC (object replacement), etc.
+        text = re.sub(r'[\uFEFF\u200B-\u200D\u2060\uFFFC]', '', text)
+        # Normalize whitespace: replace multiple spaces/newlines with single space
+        text = re.sub(r'\s+', ' ', text)
+        return text.strip()
+    
     for note in merged_notes:
         mark_text = note.get('markText', '').strip()
         review_content = note.get('reviewContent', '').strip()
@@ -195,13 +207,16 @@ def merge_notes(bookmarks: List[Dict], reviews: List[Dict], book_metadata: Dict[
             deduplicated_notes.append(note)
             continue
         
-        if mark_text not in seen_marktext:
+        # Normalize markText for comparison
+        normalized_mark_text = normalize_marktext(mark_text)
+        
+        if normalized_mark_text not in seen_marktext:
             # First occurrence of this markText
-            seen_marktext[mark_text] = len(deduplicated_notes)
+            seen_marktext[normalized_mark_text] = len(deduplicated_notes)
             deduplicated_notes.append(note)
         else:
             # Duplicate markText found
-            existing_index = seen_marktext[mark_text]
+            existing_index = seen_marktext[normalized_mark_text]
             existing_note = deduplicated_notes[existing_index]
             existing_review_content = existing_note.get('reviewContent', '').strip()
             
@@ -244,7 +259,9 @@ def save_notes_to_csv(notes: List[Dict], book_id: str, output_dir: str) -> str:
     
     # Write CSV file
     with open(file_path, 'w', encoding='utf-8', newline='') as f:
-        writer = csv.DictWriter(f, fieldnames=columns, extrasaction='ignore')
+        # Use QUOTE_MINIMAL to properly quote fields containing special characters or newlines
+        writer = csv.DictWriter(f, fieldnames=columns, extrasaction='ignore', 
+                                quoting=csv.QUOTE_MINIMAL)
         writer.writeheader()
         
         for note in notes:
@@ -254,7 +271,9 @@ def save_notes_to_csv(notes: List[Dict], book_id: str, output_dir: str) -> str:
                 if value is None:
                     row[col] = ''
                 else:
-                    row[col] = str(value)
+                    # Convert to string and replace newlines with spaces for better CSV readability
+                    # CSV format allows newlines in quoted fields, but replacing them makes files more readable
+                    row[col] = str(value).replace('\n', ' ').replace('\r', ' ')
             writer.writerow(row)
     
     return str(file_path)
@@ -291,12 +310,25 @@ def main():
     if len(sys.argv) > 4:
         output_dir = sys.argv[4]
     
+    # Get book ID filter (optional)
+    filter_book_id = None
+    if len(sys.argv) > 5:
+        filter_book_id = sys.argv[5]
+    
     # Read book IDs from CSV
     books = read_book_ids_from_csv(csv_file)
     
     if not books:
         print("No books found in CSV file.")
         sys.exit(1)
+    
+    # Filter by book ID if provided
+    if filter_book_id:
+        books = [book for book in books if book.get('bookId', '') == filter_book_id]
+        if not books:
+            print(f"No book found with ID: {filter_book_id}")
+            sys.exit(1)
+        print(f"Filtering to book ID: {filter_book_id}")
     
     print(f"\nStarting to merge notes for {len(books)} book(s)...\n")
     
@@ -328,12 +360,6 @@ def main():
         
         if not merged_notes:
             print(f"  No notes after merging, skipping\n")
-            skipped_count += 1
-            continue
-        
-        # Skip if notes count is less than 30
-        if len(merged_notes) < 30:
-            print(f"  Only {len(merged_notes)} note(s), less than 30, skipping\n")
             skipped_count += 1
             continue
         

@@ -356,16 +356,25 @@ def main():
     
     if not cookie:
         print("Usage:")
-        print("  python fetch_notebooks.py [cookie_file_path|cookie_string]")
+        print("  python fetch_notebooks.py [cookie_file_path|cookie_string] [book_id]")
         print("  or")
         print("  export WEREAD_COOKIE='your_cookie_string'")
-        print("  python fetch_notebooks.py")
+        print("  python fetch_notebooks.py [book_id]")
         print("\nIf no arguments provided, will try to read from:")
         print(f"  {default_cookie_file}")
+        print("\nArguments:")
+        print("  cookie_file_path|cookie_string: Cookie file path or cookie string")
+        print("  book_id: Optional book ID to filter (if not provided, fetches all books)")
         print("\nExample:")
         print('  python fetch_notebooks.py "wr_name=xxx; wr_skey=yyy; ..."')
         print(f'  python fetch_notebooks.py "{default_cookie_file}"')
+        print(f'  python fetch_notebooks.py "{default_cookie_file}" 3300064831')
         sys.exit(1)
+    
+    # Get book ID filter (optional)
+    filter_book_id = None
+    if len(sys.argv) > 2:
+        filter_book_id = sys.argv[2]
     
     # Initialize API client
     api = WeReadAPI(cookie)
@@ -384,6 +393,15 @@ def main():
         print("Response data:", json.dumps(data, ensure_ascii=False, indent=2))
     else:
         print(f"Successfully fetched {len(books)} notebook(s).")
+    
+    # Filter by book ID if provided
+    if filter_book_id:
+        original_count = len(books)
+        books = [book for book in books if book.get('bookId', '') == filter_book_id]
+        if not books:
+            print(f"No book found with ID: {filter_book_id}")
+            sys.exit(1)
+        print(f"Filtering to book ID: {filter_book_id} (from {original_count} book(s))")
     
     # Fetch progress for each book
     print("\nFetching reading progress for each book...")
