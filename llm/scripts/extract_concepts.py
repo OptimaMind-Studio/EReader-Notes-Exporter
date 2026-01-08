@@ -449,8 +449,8 @@ def process_csv_file(book_id: Optional[str] = None, book_title: Optional[str] = 
         api_key: Gemini API 密钥
     """
     # 获取脚本所在目录
-    script_dir = Path(__file__).parent
-    project_root = script_dir.parent
+    script_dir = Path(__file__).parent  # llm/scripts
+    project_root = script_dir.parent.parent  # 项目根目录
     
     # 默认路径
     notebooks_csv = project_root / "wereader" / "output" / "fetch_notebooks_output.csv"
@@ -633,8 +633,8 @@ def process_csv_file(book_id: Optional[str] = None, book_title: Optional[str] = 
     
     # 保存到 CSV
     if output_file is None:
-        script_dir = Path(__file__).parent
-        output_dir = script_dir / "output" / "concepts"
+        script_dir = Path(__file__).parent  # llm/scripts
+        output_dir = script_dir.parent / "output" / "concepts"  # llm/output/concepts
         output_dir.mkdir(parents=True, exist_ok=True)
         output_file = output_dir / f"{book_id}_concepts.csv"
     else:

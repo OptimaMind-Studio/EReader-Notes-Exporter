@@ -271,13 +271,13 @@ async def process_guidebook_async(book_id: Optional[str] = None, book_title: Opt
         api_key: Gemini API 密钥
     """
     # 获取脚本所在目录
-    script_dir = Path(__file__).parent
-    project_root = script_dir.parent
+    script_dir = Path(__file__).parent  # llm/scripts
+    project_root = script_dir.parent.parent  # 项目根目录
     
     # 默认路径
     notebooks_csv = project_root / "wereader" / "output" / "fetch_notebooks_output.csv"
     notes_dir = project_root / "wereader" / "output" / "notes"
-    output_dir = script_dir / "output" / "guidebook"
+    output_dir = script_dir.parent / "output" / "guidebook"  # llm/output/guidebook
     
     # 1. 确定 bookId 和书籍信息
     book_info = None
@@ -345,9 +345,66 @@ async def process_guidebook_async(book_id: Optional[str] = None, book_title: Opt
     print(f"开始生成解释（并行度: {concurrency}）...")
     print("=" * 60)
     
-    # 过滤出有效的笔记（有 markText 和 bookmarkId）
+    # 4.1 获取输入 notes 中的所有 bookmarkId 集合（用于验证输出 CSV）
+    input_bookmark_ids = set()
+    for note in notes:
+        bookmark_id = note.get('bookmarkId', '').strip()
+        if bookmark_id:
+            input_bookmark_ids.add(bookmark_id)
+    
+    # 4.2 检查输出文件是否已存在，如果存在则读取已处理的 bookmarkId，并清理无效记录
+    output_file = None
+    existing_bookmark_ids = set()
+    
+    if chapter_name:
+        safe_chapter_name = chapter_name.replace('/', '_').replace('\\', '_')
+        output_file = output_dir / f"{book_id}_{safe_chapter_name}_guidebook.csv"
+    else:
+        output_file = output_dir / f"{book_id}_all_chapters_guidebook.csv"
+    
+    if output_file.exists():
+        print(f"\n检测到已存在的输出文件: {output_file}")
+        print("正在读取已处理的 bookmarkId...")
+        
+        # 读取输出 CSV，同时检查并清理无效记录
+        valid_output_rows = []
+        deleted_count = 0
+        
+        try:
+            with open(output_file, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                columns = reader.fieldnames
+                
+                for row in reader:
+                    bookmark_id = row.get('bookmarkId', '').strip()
+                    if bookmark_id:
+                        # 检查该 bookmarkId 是否在输入 CSV 中存在
+                        if bookmark_id in input_bookmark_ids:
+                            existing_bookmark_ids.add(bookmark_id)
+                            valid_output_rows.append(row)
+                        else:
+                            deleted_count += 1
+            
+            # 如果有记录被删除，重新写入文件
+            if deleted_count > 0:
+                print(f"发现 {deleted_count} 条无效记录（bookmarkId 不在输入 CSV 中），正在清理...")
+                with open(output_file, 'w', encoding='utf-8', newline='') as f:
+                    writer = csv.DictWriter(f, fieldnames=columns, extrasaction='ignore')
+                    writer.writeheader()
+                    for row in valid_output_rows:
+                        writer.writerow(row)
+                print(f"✓ 已清理 {deleted_count} 条无效记录，保留 {len(valid_output_rows)} 条有效记录")
+            else:
+                print(f"已找到 {len(existing_bookmark_ids)} 条已处理的记录，无需清理")
+                
+        except Exception as e:
+            print(f"⚠️  读取已存在文件时出错: {e}，将重新处理所有记录")
+            existing_bookmark_ids = set()
+    
+    # 4.2 过滤出有效的笔记（有 markText 和 bookmarkId），并排除已处理的
     valid_notes = []
     note_indices = []
+    skipped_count = 0
     
     for idx, note in enumerate(notes, 1):
         mark_text = note.get('markText', '').strip()
@@ -358,15 +415,23 @@ async def process_guidebook_async(book_id: Optional[str] = None, book_title: Opt
                 print(f"[{idx}/{len(notes)}] 跳过（bookmarkId 为空）: {mark_text[:50] if mark_text else '无markText'}...")
             continue
         
+        # 检查是否已处理过
+        if bookmark_id in existing_bookmark_ids:
+            skipped_count += 1
+            continue
+        
         valid_notes.append(note)
         note_indices.append(idx)
     
+    if skipped_count > 0:
+        print(f"\n跳过 {skipped_count} 条已处理的记录")
+    
     if not valid_notes:
-        print("没有有效的笔记需要处理")
+        print("没有新的笔记需要处理")
         generator.close()
         return
     
-    print(f"\n共 {len(valid_notes)} 条有效笔记，开始异步处理...\n")
+    print(f"\n共 {len(valid_notes)} 条新笔记需要处理，开始异步处理...\n")
     
     # 5. 异步并发处理
     start_total_time = time.time()
@@ -398,14 +463,21 @@ async def process_guidebook_async(book_id: Optional[str] = None, book_title: Opt
     for (idx, explanation_html), note in zip(results_data, valid_notes):
         chapter_uid = note.get('chapterUid', '').strip()
         mark_text = note.get('markText', '').strip()
+        bookmark_id = note.get('bookmarkId', '').strip()
+        chapter_name_display = note.get('chapterName', '').strip() or (chapter_name if chapter_name else '')
+        
+        # 生成 CardName: guidebook_书名_章节名_bookmarkId
+        card_name = f"guidebook_{title}_{chapter_name_display}_{bookmark_id}"
         
         results.append({
             'title': title,
             'categories': domain,
-            'chapterName': note.get('chapterName', '').strip() or (chapter_name if chapter_name else ''),
+            'chapterName': chapter_name_display,
             'chapterUid': chapter_uid,
             'markText': mark_text,
             'markTextIndex': idx,
+            'bookmarkId': bookmark_id,
+            'CardName': card_name,
             'explanation': explanation_html
         })
     
@@ -422,27 +494,35 @@ async def process_guidebook_async(book_id: Optional[str] = None, book_title: Opt
     # 5. 保存到 CSV
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    # 生成输出文件名（使用 bookId 和章节名）
-    if chapter_name:
-        safe_chapter_name = chapter_name.replace('/', '_').replace('\\', '_')
-        output_file = output_dir / f"{book_id}_{safe_chapter_name}_guidebook.csv"
-    else:
-        output_file = output_dir / f"{book_id}_all_chapters_guidebook.csv"
-    
-    print(f"\n正在保存到: {output_file}")
-    
+    # output_file 已在前面定义
     # 定义列名（使用英文，与输入 CSV 列名保持一致）
-    columns = ['title', 'categories', 'chapterName', 'chapterUid', 'markText', 'markTextIndex', 'explanation']
+    columns = ['CardName', 'title', 'categories', 'chapterName', 'chapterUid', 'markText', 'markTextIndex', 'bookmarkId', 'explanation']
     
-    # 写入 CSV
-    with open(output_file, 'w', encoding='utf-8', newline='') as f:
+    # 判断是追加还是新建
+    file_exists = output_file.exists()
+    mode = 'a' if file_exists else 'w'
+    
+    if file_exists:
+        print(f"\n正在追加 {len(results)} 条新记录到: {output_file}")
+    else:
+        print(f"\n正在保存 {len(results)} 条记录到: {output_file}")
+    
+    # 写入 CSV（追加模式或新建模式）
+    with open(output_file, mode, encoding='utf-8', newline='') as f:
         writer = csv.DictWriter(f, fieldnames=columns, extrasaction='ignore')
-        writer.writeheader()
         
+        # 如果是新建文件，写入表头
+        if not file_exists:
+            writer.writeheader()
+        
+        # 写入新结果
         for result in results:
             writer.writerow(result)
     
-    print(f"\n✓ 已保存 {len(results)} 条记录到 {output_file}")
+    if file_exists:
+        print(f"\n✓ 已追加 {len(results)} 条新记录到 {output_file}")
+    else:
+        print(f"\n✓ 已保存 {len(results)} 条记录到 {output_file}")
 
 
 def process_guidebook(book_id: Optional[str] = None, book_title: Optional[str] = None, chapter_name: Optional[str] = None, api_key: Optional[str] = None, concurrency: int = 10):

@@ -106,13 +106,10 @@ python llm/generate_guidebook.py --book-id 3300089819
 python llm/generate_guidebook.py --title "书名"
 ```
 
-## 查看帮助
-
-所有脚本都支持 `--help` 参数：
+## Anki 导入
 
 ```bash
-python wereader/main.py --help
-python llm/extract_concepts.py --help
-python llm/generate_outline.py --help
-python llm/generate_guidebook.py --help
+python anki/import_guidebook_to_anki.py --book-id 3300089819
+
+python anki/import_guidebook_to_anki.py --book-id 3300089819 --sync # 强制同步到server
 ```

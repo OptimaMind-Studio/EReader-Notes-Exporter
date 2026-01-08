@@ -436,8 +436,8 @@ def process_csv_file(book_id: Optional[str] = None, book_title: Optional[str] = 
         role: 角色（默认为"学习者"）
     """
     # 获取脚本所在目录
-    script_dir = Path(__file__).parent
-    project_root = script_dir.parent
+    script_dir = Path(__file__).parent  # llm/scripts
+    project_root = script_dir.parent.parent  # 项目根目录
     
     # 默认路径
     notebooks_csv = project_root / "wereader" / "output" / "fetch_notebooks_output.csv"
@@ -654,8 +654,8 @@ def process_csv_file(book_id: Optional[str] = None, book_title: Optional[str] = 
     
     # 生成输出文件名
     if output_file is None:
-        script_dir = Path(__file__).parent  # llm 目录
-        output_dir = script_dir / "output" / "outlines"
+        script_dir = Path(__file__).parent  # llm/scripts
+        output_dir = script_dir.parent / "output" / "outlines"  # llm/output/outlines
         output_dir.mkdir(parents=True, exist_ok=True)
         base_name = book_id
         markdown_file = str(output_dir / f"{base_name}_outline.md")
