@@ -32,3 +32,33 @@ FIELD_MAPPING = {
     'markText': 'References'
 }
 
+# Concepts 卡牌组命名格式
+# 格式：{prefix}::{category}::{book_title}
+# 例如：微信读书::concepts::极简央行课
+CONCEPTS_DECK_NAME_CATEGORY = "concepts"
+CONCEPTS_DECK_NAME_FORMAT = f"{DECK_NAME_PREFIX}::{CONCEPTS_DECK_NAME_CATEGORY}::{{book_title}}"
+
+# Concepts CSV 列名 -> Anki 字段名 的映射
+CONCEPTS_FIELD_MAPPING = {
+    'concept': 'Name',           # 概念名称 -> Name
+    'source': 'Source',          # 来源（书名） -> Source
+    'domain': 'Field',           # 领域 -> Field
+    'category': 'Taxonomy',      # 分类 -> Taxonomy
+    'definition': 'AINotes',     # 定义（HTML） -> AINotes
+    'chapterRange': 'References'  # 章节范围（章节号-章节名） -> References
+}
+# Outline 卡牌组命名格式
+# 格式：{prefix}::{category}::{book_title}
+# 例如：微信读书::outline::极简央行课
+OUTLINE_DECK_NAME_CATEGORY = "outline"
+OUTLINE_DECK_NAME_FORMAT = f"{DECK_NAME_PREFIX}::{OUTLINE_DECK_NAME_CATEGORY}::{{book_title}}"
+
+# Outline 字段映射（从 HTML 表格解析出的数据 -> Anki 字段名）
+OUTLINE_FIELD_MAPPING = {
+    'concept': 'Name',           # 概念词 -> Name
+    'source': 'Source',          # 来源（书名） -> Source
+    'domain': 'Field',           # 领域 -> Field
+    'category': 'Taxonomy',      # 范畴 -> Taxonomy
+    'explanation': 'AINotes',    # 解释 -> AINotes
+    'block_number': 'References'  # 层级概念块编号 -> References
+}

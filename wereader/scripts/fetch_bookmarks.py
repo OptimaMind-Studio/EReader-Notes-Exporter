@@ -14,6 +14,7 @@ import argparse
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 import time
+from datetime import datetime
 
 
 class WeReadBookmarkAPI:
@@ -56,11 +57,36 @@ class WeReadBookmarkAPI:
             
             data = response.json()
             
+            # Debug: Print response structure if no bookmarks found
+            updated = data.get('updated', [])
+            if not updated:
+                print(f"  🔍 Debug: API Response structure:")
+                print(f"     URL: {url}")
+                print(f"     Status: {response.status_code}")
+                print(f"     Response keys: {list(data.keys())[:20]}")
+                if 'errcode' in data or 'errCode' in data:
+                    err_code = data.get('errcode') or data.get('errCode')
+                    err_msg = data.get('errMsg', '')
+                    print(f"     Error code: {err_code}")
+                    print(f"     Error message: {err_msg}")
+                # Print first 500 chars of response for debugging
+                response_str = str(data)[:500]
+                print(f"     Response preview: {response_str}...")
+            
             # Check for error codes (both errcode and errCode formats)
             err_code = data.get('errcode') or data.get('errCode')
+            err_msg = data.get('errMsg', '')
+            
             if err_code == -2012:
-                print(f"  Error: Cookie expired (errCode -2012). Please refresh your cookie.")
+                print(f"  ❌ Error: Cookie expired (errCode -2012). Please refresh your cookie.")
                 return None
+            elif err_code == -2010:
+                print(f"  ❌ Error: User not found (errCode -2010). Error message: {err_msg}")
+                print(f"     This usually means the cookie is invalid or expired. Please refresh your cookie.")
+                return None
+            elif err_code and err_code != 0:
+                print(f"  ⚠️  Warning: API returned error code {err_code}: {err_msg}")
+                # Continue processing but log the error
             
             return data
             
@@ -203,8 +229,11 @@ def save_bookmarks_to_csv(bookmarks: List[Dict], book_id: str, book_metadata: Di
     
     file_path = output_path / filename
     
-    # Define columns: book metadata first, then bookmark fields
-    columns = ['bookId', 'title', 'author', 'categories', 'bookmarkId', 'markText', 'chapterName', 'chapterUid', 'colorStyle', 'style', 'createTime']
+    # Define columns: book metadata first, then bookmark fields, then timestamp columns
+    columns = ['bookId', 'title', 'author', 'categories', 'bookmarkId', 'markText', 'chapterName', 'chapterUid', 'colorStyle', 'style', 'createTime', 'created_at', 'updated_at']
+    
+    # Get current timestamp
+    current_time = datetime.now().isoformat()
     
     # Write CSV file
     with open(file_path, 'w', encoding='utf-8', newline='') as f:
@@ -228,6 +257,9 @@ def save_bookmarks_to_csv(bookmarks: List[Dict], book_id: str, book_metadata: Di
                 else:
                     # Replace newlines with spaces for better CSV readability
                     row[col] = str(value).replace('\n', ' ').replace('\r', ' ')
+            # Add timestamp columns
+            row['created_at'] = current_time
+            row['updated_at'] = current_time
             writer.writerow(row)
     
     return str(file_path)
@@ -335,20 +367,48 @@ def main():
         
         # Check for error codes in response
         err_code = data.get('errcode') or data.get('errCode')
+        err_msg = data.get('errMsg', '')
+        
         if err_code == -2012:
-            print(f"  Error: Cookie expired (errCode -2012). Please refresh your cookie.\n")
+            print(f"  ❌ Error: Cookie expired (errCode -2012). Please refresh your cookie.\n")
             error_count += 1
             # Stop processing if cookie is expired
             if i == 1:
                 print("  Stopping: Cookie expired. Please update your cookie file and try again.")
                 break
             continue
+        elif err_code == -2010:
+            print(f"  ❌ Error: User not found (errCode -2010). Error message: {err_msg}")
+            print(f"     This usually means the cookie is invalid or expired. Please refresh your cookie.\n")
+            error_count += 1
+            # Stop processing if user not found
+            if i == 1:
+                print("  Stopping: User not found. Please update your cookie file and try again.")
+                break
+            continue
+        elif err_code and err_code != 0:
+            print(f"  ⚠️  Warning: API returned error code {err_code}: {err_msg}")
+            # Continue processing but log the error
         
         # Extract bookmarks from response
         updated = data.get('updated', [])
         
+        # Check for alternative data structures
         if not updated:
-            print(f"  No bookmarks found\n")
+            # Try other possible fields
+            if 'bookmarks' in data:
+                updated = data.get('bookmarks', [])
+                print(f"  🔍 Found 'bookmarks' field with {len(updated)} items")
+            elif 'data' in data and isinstance(data.get('data'), list):
+                updated = data.get('data', [])
+                print(f"  🔍 Found 'data' field with {len(updated)} items")
+        
+        if not updated:
+            print(f"  ⚠️  No bookmarks found in response")
+            print(f"     This might indicate:")
+            print(f"     1. The book has no bookmarks/highlights")
+            print(f"     2. Cookie is invalid or expired (check error codes above)")
+            print(f"     3. API response structure changed\n")
             no_bookmarks_count += 1
             continue
         

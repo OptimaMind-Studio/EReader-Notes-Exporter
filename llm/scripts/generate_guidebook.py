@@ -388,10 +388,19 @@ async def process_guidebook_async(book_id: Optional[str] = None, book_title: Opt
             # 如果有记录被删除，重新写入文件
             if deleted_count > 0:
                 print(f"发现 {deleted_count} 条无效记录（bookmarkId 不在输入 CSV 中），正在清理...")
+                # 确保 columns 包含 timestamp 字段
+                if columns and 'created_at' not in columns:
+                    columns = list(columns) + ['created_at', 'updated_at']
+                current_time = datetime.now().isoformat()
                 with open(output_file, 'w', encoding='utf-8', newline='') as f:
                     writer = csv.DictWriter(f, fieldnames=columns, extrasaction='ignore')
                     writer.writeheader()
                     for row in valid_output_rows:
+                        # 如果现有行没有 timestamp，添加当前时间
+                        if 'created_at' not in row or not row.get('created_at'):
+                            row['created_at'] = current_time
+                        if 'updated_at' not in row or not row.get('updated_at'):
+                            row['updated_at'] = current_time
                         writer.writerow(row)
                 print(f"✓ 已清理 {deleted_count} 条无效记录，保留 {len(valid_output_rows)} 条有效记录")
             else:
@@ -496,7 +505,10 @@ async def process_guidebook_async(book_id: Optional[str] = None, book_title: Opt
     
     # output_file 已在前面定义
     # 定义列名（使用英文，与输入 CSV 列名保持一致）
-    columns = ['CardName', 'title', 'categories', 'chapterName', 'chapterUid', 'markText', 'markTextIndex', 'bookmarkId', 'explanation']
+    columns = ['CardName', 'title', 'categories', 'chapterName', 'chapterUid', 'markText', 'markTextIndex', 'bookmarkId', 'explanation', 'created_at', 'updated_at']
+    
+    # Get current timestamp
+    current_time = datetime.now().isoformat()
     
     # 判断是追加还是新建
     file_exists = output_file.exists()
@@ -517,6 +529,9 @@ async def process_guidebook_async(book_id: Optional[str] = None, book_title: Opt
         
         # 写入新结果
         for result in results:
+            # Add timestamp columns
+            result['created_at'] = current_time
+            result['updated_at'] = current_time
             writer.writerow(result)
     
     if file_exists:

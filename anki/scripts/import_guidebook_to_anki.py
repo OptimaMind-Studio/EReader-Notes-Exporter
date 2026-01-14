@@ -466,6 +466,7 @@ def import_csv_to_anki(csv_file: Path, anki_client: AnkiConnectClient, model_nam
     # 批量添加卡片（每次最多 100 张，避免请求过大）
     batch_size = 100
     total_added = 0
+    total_failed = 0
     
     for i in range(0, len(notes_to_add), batch_size):
         batch = notes_to_add[i:i + batch_size]
@@ -473,12 +474,63 @@ def import_csv_to_anki(csv_file: Path, anki_client: AnkiConnectClient, model_nam
             result = anki_client.add_notes(batch)
             # result 是一个列表，包含成功添加的卡片 ID 和 None（失败的）
             added_count = sum(1 for x in result if x is not None)
+            failed_count = len(batch) - added_count
             total_added += added_count
+            total_failed += failed_count
+            if failed_count > 0:
+                print(f"  批次 {i//batch_size + 1}: 成功添加 {added_count}/{len(batch)} 张卡片（{failed_count} 张可能重复）")
+            else:
             print(f"  批次 {i//batch_size + 1}: 成功添加 {added_count}/{len(batch)} 张卡片")
         except Exception as e:
-            print(f"  ❌ 批次 {i//batch_size + 1} 添加失败: {e}")
+            error_msg = str(e)
+            # 如果批量添加失败，改为逐个添加（无论是什么错误）
+            print(f"  批次 {i//batch_size + 1}: 批量添加失败，改为逐个添加...")
+            batch_added = 0
+            batch_failed = 0
+            batch_duplicate = 0
+            
+            for note_idx, note in enumerate(batch, 1):
+                try:
+                    note_id = anki_client.add_note(
+                        deck_name=note['deckName'],
+                        model_name=note['modelName'],
+                        fields=note['fields'],
+                        tags=note.get('tags', [])
+                    )
+                    if note_id:
+                        batch_added += 1
+                except Exception as note_error:
+                    error_str = str(note_error).lower()
+                    if 'duplicate' in error_str:
+                        # 重复的卡片，跳过
+                        batch_duplicate += 1
+                        batch_failed += 1
+                    else:
+                        # 其他错误，打印详细信息
+                        card_name = note['fields'].get('Name', '未知')[:50]
+                        print(f"    [{note_idx}/{len(batch)}] ⚠️  添加卡片失败 ({card_name}...): {note_error}")
+                        batch_failed += 1
+            
+            total_added += batch_added
+            total_failed += batch_failed
+            
+            # 打印汇总信息
+            if batch_added > 0 or batch_failed > 0:
+                status_parts = []
+                if batch_added > 0:
+                    status_parts.append(f"成功 {batch_added}")
+                if batch_duplicate > 0:
+                    status_parts.append(f"重复 {batch_duplicate}")
+                if batch_failed > batch_duplicate:
+                    status_parts.append(f"失败 {batch_failed - batch_duplicate}")
+                status_str = "，".join(status_parts)
+                print(f"  批次 {i//batch_size + 1}: 逐个添加完成（{status_str}/{len(batch)} 张卡片）")
+            else:
+                print(f"  批次 {i//batch_size + 1}: 逐个添加完成，成功 {batch_added}/{len(batch)} 张卡片")
     
     print(f"\n✓ 完成！共添加 {total_added}/{len(notes_to_add)} 张卡片到 Anki")
+    if total_failed > 0:
+        print(f"⚠️  跳过 {total_failed} 张卡片（可能是重复卡片）")
     
     # 如果需要同步到 AnkiWeb
     if sync:
@@ -530,7 +582,7 @@ def main():
   python import_guidebook_to_anki.py --book-id 3300089819
   
   # 根据书名过滤
-  python import_guidebook_to_anki.py --book-name "极简央行课"
+  python import_guidebook_to_anki.py --title "极简央行课"
   
   # 试运行（不实际添加卡片）
   python import_guidebook_to_anki.py --dry-run
@@ -547,7 +599,7 @@ def main():
     book_group = parser.add_mutually_exclusive_group()
     book_group.add_argument('--book-id', '--id', dest='book_id', type=str, default=None,
                            help='书籍ID（可选，如果提供则只导入该书籍的 CSV 文件）')
-    book_group.add_argument('--book-name', '--title', dest='book_name', type=str, default=None,
+    book_group.add_argument('--title', '--book-title', '--book-name', dest='book_name', type=str, default=None,
                            help='书籍名称（可选，如果提供则只导入该书籍的 CSV 文件）')
     
     parser.add_argument('--anki-url', dest='anki_url', type=str, default=None,

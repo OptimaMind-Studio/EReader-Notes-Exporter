@@ -14,6 +14,7 @@ import argparse
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 import time
+from datetime import datetime
 
 
 class WeReadReviewAPI:
@@ -56,11 +57,34 @@ class WeReadReviewAPI:
             
             data = response.json()
             
+            # Debug: Print response structure for troubleshooting
+            if not data.get('reviews') and not data.get('reviewList'):
+                print(f"  🔍 Debug: API Response structure:")
+                print(f"     URL: {url}")
+                print(f"     Status: {response.status_code}")
+                print(f"     Response keys: {list(data.keys())[:20]}")
+                if 'errcode' in data or 'errCode' in data:
+                    print(f"     Error code: {data.get('errcode') or data.get('errCode')}")
+                if 'totalCount' in data:
+                    print(f"     totalCount: {data.get('totalCount')}")
+                # Print first 500 chars of response for debugging
+                response_str = str(data)[:500]
+                print(f"     Response preview: {response_str}...")
+            
             # Check for error codes (both errcode and errCode formats)
             err_code = data.get('errcode') or data.get('errCode')
+            err_msg = data.get('errMsg', '')
+            
             if err_code == -2012:
-                print(f"  Error: Cookie expired (errCode -2012). Please refresh your cookie.")
+                print(f"  ❌ Error: Cookie expired (errCode -2012). Please refresh your cookie.")
                 return None
+            elif err_code == -2010:
+                print(f"  ❌ Error: User not found (errCode -2010). Error message: {err_msg}")
+                print(f"     This usually means the cookie is invalid or expired. Please refresh your cookie.")
+                return None
+            elif err_code and err_code != 0:
+                print(f"  ⚠️  Warning: API returned error code {err_code}: {err_msg}")
+                # Continue processing but log the error
             
             return data
             
@@ -203,8 +227,11 @@ def save_reviews_to_csv(reviews: List[Dict], book_id: str, book_metadata: Dict[s
     
     file_path = output_path / filename
     
-    # Define columns: book metadata first, then review fields
-    columns = ['bookId', 'title', 'author', 'categories', 'reviewId', 'content', 'chapterName', 'chapterUid', 'createTime', 'abstract', 'range']
+    # Define columns: book metadata first, then review fields, then timestamp columns
+    columns = ['bookId', 'title', 'author', 'categories', 'reviewId', 'content', 'chapterName', 'chapterUid', 'createTime', 'abstract', 'range', 'created_at', 'updated_at']
+    
+    # Get current timestamp
+    current_time = datetime.now().isoformat()
     
     # Write CSV file
     with open(file_path, 'w', encoding='utf-8', newline='') as f:
@@ -228,6 +255,9 @@ def save_reviews_to_csv(reviews: List[Dict], book_id: str, book_metadata: Dict[s
                 else:
                     # Replace newlines with spaces for better CSV readability
                     row[col] = str(value).replace('\n', ' ').replace('\r', ' ')
+            # Add timestamp columns
+            row['created_at'] = current_time
+            row['updated_at'] = current_time
             writer.writerow(row)
     
     return str(file_path)
@@ -315,6 +345,11 @@ def main():
     
     print(f"\nStarting to fetch reviews for {len(books)} book(s)...\n")
     
+    # 确保输出目录存在（即使没有 reviews 也要创建）
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+    print(f"Output directory: {output_path.absolute()}\n")
+    
     success_count = 0
     error_count = 0
     no_reviews_count = 0
@@ -335,32 +370,68 @@ def main():
         
         # Check for error codes in response
         err_code = data.get('errcode') or data.get('errCode')
+        err_msg = data.get('errMsg', '')
+        
         if err_code == -2012:
-            print(f"  Error: Cookie expired (errCode -2012). Please refresh your cookie.\n")
+            print(f"  ❌ Error: Cookie expired (errCode -2012). Please refresh your cookie.\n")
             error_count += 1
             # Stop processing if cookie is expired
             if i == 1:
                 print("  Stopping: Cookie expired. Please update your cookie file and try again.")
                 break
             continue
+        elif err_code == -2010:
+            print(f"  ❌ Error: User not found (errCode -2010). Error message: {err_msg}")
+            print(f"     This usually means the cookie is invalid or expired. Please refresh your cookie.\n")
+            error_count += 1
+            # Stop processing if user not found
+            if i == 1:
+                print("  Stopping: User not found. Please update your cookie file and try again.")
+                break
+            continue
+        elif err_code and err_code != 0:
+            print(f"  ⚠️  Warning: API returned error code {err_code}: {err_msg}")
+            # Continue processing but log the error
         
         # Extract reviews from response
         reviews_list = data.get('reviews', [])
+        total_count = data.get('totalCount', 0)
+        
+        # Debug: Print response structure
+        if not reviews_list:
+            print(f"  ⚠️  API 返回的 reviews 字段为空")
+            print(f"     totalCount: {total_count}")
+            print(f"     Response keys: {list(data.keys())[:10]}")
+            # Check for alternative data structures
+            if 'reviewList' in data:
+                reviews_list = data.get('reviewList', [])
+                print(f"     Found 'reviewList' field with {len(reviews_list)} items")
+            elif 'data' in data and isinstance(data.get('data'), list):
+                reviews_list = data.get('data', [])
+                print(f"     Found 'data' field with {len(reviews_list)} items")
         
         if not reviews_list:
             # Check if there's a totalCount field that might indicate no reviews
-            total_count = data.get('totalCount', 0)
             if total_count == 0:
                 print(f"  No reviews found (totalCount: 0)\n")
             else:
-                print(f"  No reviews in 'reviews' field (but totalCount: {total_count})\n")
+                print(f"  ⚠️  No reviews in response (but totalCount: {total_count})")
+                print(f"     This might indicate an API issue or data structure change\n")
             no_reviews_count += 1
             continue
         
         # Extract review data from nested structure
         extracted_reviews = []
         for review_item in reviews_list:
-            review_data = review_item.get('review', {})
+            # Handle different data structures
+            review_data = None
+            if isinstance(review_item, dict):
+                # Try nested 'review' structure first
+                review_data = review_item.get('review', {})
+                # If no 'review' key, try using the item directly
+                if not review_data and ('reviewId' in review_item or 'content' in review_item):
+                    review_data = review_item
+            
             if review_data:
                 # Extract required fields
                 extracted_review = {
@@ -372,10 +443,13 @@ def main():
                     'abstract': review_data.get('abstract', ''),
                     'range': review_data.get('range', '')
                 }
-                extracted_reviews.append(extracted_review)
+                # Only add if we have at least reviewId or content
+                if extracted_review.get('reviewId') or extracted_review.get('content'):
+                    extracted_reviews.append(extracted_review)
         
         if not extracted_reviews:
-            print(f"  No reviews found\n")
+            print(f"  ⚠️  No reviews extracted from {len(reviews_list)} review items")
+            print(f"     This might indicate a data structure mismatch\n")
             no_reviews_count += 1
             continue
         

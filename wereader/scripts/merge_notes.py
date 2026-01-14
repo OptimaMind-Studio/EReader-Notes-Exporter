@@ -13,6 +13,7 @@ import argparse
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from collections import defaultdict
+from datetime import datetime
 
 
 def read_book_ids_from_csv(csv_file: str) -> List[Dict[str, str]]:
@@ -149,13 +150,20 @@ def merge_notes(bookmarks: List[Dict], reviews: List[Dict], book_metadata: Dict[
         
         # Convert bookmarks to unified format
         for bm in chapter_bookmarks:
+            book_id = book_metadata.get('bookId', '')
+            bookmark_id = bm.get('bookmarkId', '')
+            review_id = ''
+            # Generate noteId: Note_bookId_bookmarkId_reviewId
+            note_id = f"Note_{book_id}_{bookmark_id}_{review_id}"
+            
             note = {
-                'bookId': book_metadata.get('bookId', ''),
+                'bookId': book_id,
                 'title': book_metadata.get('title', ''),
                 'author': book_metadata.get('author', ''),
                 'categories': book_metadata.get('categories', ''),
-                'bookmarkId': bm.get('bookmarkId', ''),
-                'reviewId': '',
+                'noteId': note_id,
+                'bookmarkId': bookmark_id,
+                'reviewId': review_id,
                 'chapterName': bm.get('chapterName', ''),
                 'chapterUid': str(chapter_uid),
                 'markText': bm.get('markText', ''),
@@ -166,13 +174,20 @@ def merge_notes(bookmarks: List[Dict], reviews: List[Dict], book_metadata: Dict[
         
         # Convert reviews to unified format
         for rv in chapter_reviews:
+            book_id = book_metadata.get('bookId', '')
+            bookmark_id = ''
+            review_id = rv.get('reviewId', '')
+            # Generate noteId: Note_bookId_bookmarkId_reviewId
+            note_id = f"Note_{book_id}_{bookmark_id}_{review_id}"
+            
             note = {
-                'bookId': book_metadata.get('bookId', ''),
+                'bookId': book_id,
                 'title': book_metadata.get('title', ''),
                 'author': book_metadata.get('author', ''),
                 'categories': book_metadata.get('categories', ''),
-                'bookmarkId': '',
-                'reviewId': rv.get('reviewId', ''),
+                'noteId': note_id,
+                'bookmarkId': bookmark_id,
+                'reviewId': review_id,
                 'chapterName': rv.get('chapterName', ''),
                 'chapterUid': str(chapter_uid),
                 'markText': rv.get('abstract', ''),
@@ -224,6 +239,11 @@ def merge_notes(bookmarks: List[Dict], reviews: List[Dict], book_metadata: Dict[
             # Keep the one with non-empty reviewContent
             if review_content and not existing_review_content:
                 # Replace existing with current (current has reviewContent)
+                # Update noteId when replacing (in case bookmarkId/reviewId changed)
+                book_id = note.get('bookId', '')
+                bookmark_id = note.get('bookmarkId', '')
+                review_id = note.get('reviewId', '')
+                note['noteId'] = f"Note_{book_id}_{bookmark_id}_{review_id}"
                 deduplicated_notes[existing_index] = note
             # If both have reviewContent or both don't, keep the existing one (first occurrence)
             # If current doesn't have reviewContent but existing does, keep existing
@@ -255,8 +275,11 @@ def save_notes_to_csv(notes: List[Dict], book_id: str, output_dir: str) -> str:
     file_path = output_path / filename
     
     # Define columns
-    columns = ['bookId', 'title', 'author', 'categories', 'bookmarkId', 'reviewId', 
-               'chapterName', 'chapterUid', 'markText', 'reviewContent', 'createTime']
+    columns = ['bookId', 'title', 'author', 'categories', 'noteId', 'bookmarkId', 'reviewId', 
+               'chapterName', 'chapterUid', 'markText', 'reviewContent', 'createTime', 'created_at', 'updated_at']
+    
+    # Get current timestamp
+    current_time = datetime.now().isoformat()
     
     # Write CSV file
     with open(file_path, 'w', encoding='utf-8', newline='') as f:
@@ -267,7 +290,8 @@ def save_notes_to_csv(notes: List[Dict], book_id: str, output_dir: str) -> str:
         
         for note in notes:
             row = {}
-            for col in columns:
+            for col in ['bookId', 'title', 'author', 'categories', 'noteId', 'bookmarkId', 'reviewId', 
+                       'chapterName', 'chapterUid', 'markText', 'reviewContent', 'createTime']:
                 value = note.get(col, '')
                 if value is None:
                     row[col] = ''
@@ -275,6 +299,9 @@ def save_notes_to_csv(notes: List[Dict], book_id: str, output_dir: str) -> str:
                     # Convert to string and replace newlines with spaces for better CSV readability
                     # CSV format allows newlines in quoted fields, but replacing them makes files more readable
                     row[col] = str(value).replace('\n', ' ').replace('\r', ' ')
+            # Add timestamp columns
+            row['created_at'] = current_time
+            row['updated_at'] = current_time
             writer.writerow(row)
     
     return str(file_path)

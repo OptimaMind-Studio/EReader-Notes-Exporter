@@ -13,6 +13,7 @@ import csv
 import argparse
 from typing import Optional, Dict, Any, List
 from pathlib import Path
+from datetime import datetime
 
 
 class WeReadAPI:
@@ -232,8 +233,11 @@ class WeReadAPI:
             
             processed_books.append(important_book)
         
-        # Use important_fields as column order
-        columns = important_fields
+        # Use important_fields as column order, add timestamp columns
+        columns = important_fields + ['created_at', 'updated_at']
+        
+        # Get current timestamp
+        current_time = datetime.now().isoformat()
         
         # Write CSV file
         with open(file_path, 'w', encoding='utf-8', newline='') as f:
@@ -242,12 +246,15 @@ class WeReadAPI:
             for book in processed_books:
                 # Convert all values to strings, handle None
                 row = {}
-                for key in columns:
+                for key in important_fields:
                     value = book.get(key, '')
                     if value is None:
                         row[key] = ''
                     else:
                         row[key] = str(value)
+                # Add timestamp columns
+                row['created_at'] = current_time
+                row['updated_at'] = current_time
                 writer.writerow(row)
         
         return str(file_path)

@@ -1,0 +1,15 @@
+⚠️ 重要提示：不要使用 ui/app.py（桌面版）
+
+✅ 正确的启动方式：
+
+1. 首先安装 Flask：
+   pip install flask
+
+2. 然后启动 Web UI：
+   python3 ui/app_web.py
+
+3. 浏览器会自动打开 http://127.0.0.1:5000
+
+或者使用智能启动脚本：
+   python3 ui/start.py
+
