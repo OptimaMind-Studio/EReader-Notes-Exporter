@@ -107,6 +107,19 @@ class ConceptExtractor:
         self.client = genai.Client(api_key=api_key)
         self.max_retries = max_retries
     
+    def _is_rate_limit_error(self, error: Exception) -> bool:
+        """
+        检查是否是限流错误（429）
+        
+        Args:
+            error: 异常对象
+        
+        Returns:
+            如果是 429 错误返回 True，否则返回 False
+        """
+        error_str = str(error).upper()
+        return '429' in error_str or 'RESOURCE_EXHAUSTED' in error_str or 'RATE_LIMIT' in error_str
+    
     def extract_concepts(self, mark_texts: List[str], domain: str) -> List[str]:
         """
         从文本中提取概念词（只返回概念名称，不包含定义）
@@ -123,36 +136,55 @@ class ConceptExtractor:
         prompt = EXTRACT_CONCEPTS_PROMPT_TEMPLATE.replace("{{domain}}", domain)
         prompt = prompt.replace("{{text_content}}", text_content)
         
-        try:
-            response = self.client.models.generate_content(
-                model='gemini-2.0-flash-001',
-                contents=prompt,
-            )
-            
-            if hasattr(response, 'text'):
-                response_text = response.text
-            elif hasattr(response, 'candidates') and len(response.candidates) > 0:
-                response_text = response.candidates[0].content.parts[0].text
-            else:
-                response_text = str(response)
-            
-            response_text = response_text.strip()
-            
-            # 解析概念词列表
-            concepts = []
-            for line in response_text.split('\n'):
-                line = line.strip()
-                if line and line != '无' and not line.startswith('#'):
-                    # 移除可能的编号（如 "1. ", "1、"等）
-                    line = re.sub(r'^\d+[\.、]\s*', '', line)
-                    if line:
-                        concepts.append(line)
-            
-            return concepts
-            
-        except Exception as e:
-            print(f"  ⚠️  提取概念时出错: {e}")
-            return []
+        last_exception = None
+        
+        for attempt in range(self.max_retries + 1):
+            try:
+                response = self.client.models.generate_content(
+                    model='gemini-2.0-flash-001',
+                    contents=prompt,
+                )
+                
+                if hasattr(response, 'text'):
+                    response_text = response.text
+                elif hasattr(response, 'candidates') and len(response.candidates) > 0:
+                    response_text = response.candidates[0].content.parts[0].text
+                else:
+                    response_text = str(response)
+                
+                response_text = response_text.strip()
+                
+                # 解析概念词列表
+                concepts = []
+                for line in response_text.split('\n'):
+                    line = line.strip()
+                    if line and line != '无' and not line.startswith('#'):
+                        # 移除可能的编号（如 "1. ", "1、"等）
+                        line = re.sub(r'^\d+[\.、]\s*', '', line)
+                        if line:
+                            concepts.append(line)
+                
+                return concepts
+                
+            except Exception as e:
+                last_exception = e
+                
+                # 检查是否是 429 限流错误
+                if self._is_rate_limit_error(e):
+                    if attempt < self.max_retries:
+                        print(f"  ⚠️  遇到限流错误（429），等待 5 秒后重试（第 {attempt + 1}/{self.max_retries} 次尝试）...")
+                        time.sleep(5)
+                        continue
+                    else:
+                        print(f"  ⚠️  提取概念时出错（429 限流，已重试 {self.max_retries} 次）: {e}")
+                        return []
+                else:
+                    # 其他错误，不重试
+                    print(f"  ⚠️  提取概念时出错: {e}")
+                    return []
+        
+        print(f"  ⚠️  提取概念失败（重试 {self.max_retries} 次后）: {last_exception}")
+        return []
     
     def deduplicate_concepts(self, all_concepts: List[str]) -> List[str]:
         """
@@ -171,35 +203,54 @@ class ConceptExtractor:
         
         prompt = DEDUPLICATE_CONCEPTS_PROMPT_TEMPLATE.replace("{{concepts_text}}", concepts_text)
         
-        try:
-            response = self.client.models.generate_content(
-                model='gemini-2.0-flash-001',
-                contents=prompt,
-            )
-            
-            if hasattr(response, 'text'):
-                response_text = response.text
-            elif hasattr(response, 'candidates') and len(response.candidates) > 0:
-                response_text = response.candidates[0].content.parts[0].text
-            else:
-                response_text = str(response)
-            
-            response_text = response_text.strip()
-            
-            # 解析去重后的概念词列表
-            deduplicated = []
-            for line in response_text.split('\n'):
-                line = line.strip()
-                if line and not line.startswith('#'):
-                    line = re.sub(r'^\d+[\.、]\s*', '', line)
-                    if line:
-                        deduplicated.append(line)
-            
-            return deduplicated
-            
-        except Exception as e:
-            print(f"  ⚠️  去重时出错: {e}")
-            return list(set(all_concepts))  # 如果失败，使用简单的去重
+        last_exception = None
+        
+        for attempt in range(self.max_retries + 1):
+            try:
+                response = self.client.models.generate_content(
+                    model='gemini-2.0-flash-001',
+                    contents=prompt,
+                )
+                
+                if hasattr(response, 'text'):
+                    response_text = response.text
+                elif hasattr(response, 'candidates') and len(response.candidates) > 0:
+                    response_text = response.candidates[0].content.parts[0].text
+                else:
+                    response_text = str(response)
+                
+                response_text = response_text.strip()
+                
+                # 解析去重后的概念词列表
+                deduplicated = []
+                for line in response_text.split('\n'):
+                    line = line.strip()
+                    if line and not line.startswith('#'):
+                        line = re.sub(r'^\d+[\.、]\s*', '', line)
+                        if line:
+                            deduplicated.append(line)
+                
+                return deduplicated
+                
+            except Exception as e:
+                last_exception = e
+                
+                # 检查是否是 429 限流错误
+                if self._is_rate_limit_error(e):
+                    if attempt < self.max_retries:
+                        print(f"  ⚠️  遇到限流错误（429），等待 5 秒后重试（第 {attempt + 1}/{self.max_retries} 次尝试）...")
+                        time.sleep(5)
+                        continue
+                    else:
+                        print(f"  ⚠️  去重时出错（429 限流，已重试 {self.max_retries} 次）: {e}")
+                        return list(set(all_concepts))  # 如果失败，使用简单的去重
+                else:
+                    # 其他错误，不重试
+                    print(f"  ⚠️  去重时出错: {e}")
+                    return list(set(all_concepts))  # 如果失败，使用简单的去重
+        
+        print(f"  ⚠️  去重失败（重试 {self.max_retries} 次后）: {last_exception}")
+        return list(set(all_concepts))  # 如果失败，使用简单的去重
     
     def get_concept_category(self, concept: str, domain: str) -> str:
         """
@@ -215,29 +266,48 @@ class ConceptExtractor:
         prompt = GET_CONCEPT_CATEGORY_PROMPT_TEMPLATE.replace("{{concept}}", concept)
         prompt = prompt.replace("{{domain}}", domain)
         
-        try:
-            response = self.client.models.generate_content(
-                model='gemini-2.0-flash-001',
-                contents=prompt,
-            )
-            
-            if hasattr(response, 'text'):
-                category = response.text.strip()
-            elif hasattr(response, 'candidates') and len(response.candidates) > 0:
-                category = response.candidates[0].content.parts[0].text.strip()
-            else:
-                category = "其他"
-            
-            # 清理可能的额外内容
-            category = category.split('\n')[0].strip()
-            if not category or category == '无':
-                category = "其他"
-            
-            return category
-            
-        except Exception as e:
-            print(f"  ⚠️  获取分类时出错: {e}")
-            return "其他"
+        last_exception = None
+        
+        for attempt in range(self.max_retries + 1):
+            try:
+                response = self.client.models.generate_content(
+                    model='gemini-2.0-flash-001',
+                    contents=prompt,
+                )
+                
+                if hasattr(response, 'text'):
+                    category = response.text.strip()
+                elif hasattr(response, 'candidates') and len(response.candidates) > 0:
+                    category = response.candidates[0].content.parts[0].text.strip()
+                else:
+                    category = "其他"
+                
+                # 清理可能的额外内容
+                category = category.split('\n')[0].strip()
+                if not category or category == '无':
+                    category = "其他"
+                
+                return category
+                
+            except Exception as e:
+                last_exception = e
+                
+                # 检查是否是 429 限流错误
+                if self._is_rate_limit_error(e):
+                    if attempt < self.max_retries:
+                        print(f"  ⚠️  遇到限流错误（429），等待 5 秒后重试（第 {attempt + 1}/{self.max_retries} 次尝试）...")
+                        time.sleep(5)
+                        continue
+                    else:
+                        print(f"  ⚠️  获取分类时出错（429 限流，已重试 {self.max_retries} 次）: {e}")
+                        return "其他"
+                else:
+                    # 其他错误，不重试
+                    print(f"  ⚠️  获取分类时出错: {e}")
+                    return "其他"
+        
+        print(f"  ⚠️  获取分类失败（重试 {self.max_retries} 次后）: {last_exception}")
+        return "其他"
     
     def find_sentences_with_concept(self, rows: List[Dict[str, str]], concept: str, min_notes: int = 30) -> tuple[List[str], str]:
         """
@@ -398,6 +468,16 @@ class ConceptExtractor:
                 last_exception = e
                 error_msg = str(e).lower()
                 
+                # 检查是否是 429 限流错误
+                if self._is_rate_limit_error(e):
+                    if attempt < self.max_retries:
+                        print(f"  ⚠️  遇到限流错误（429），等待 5 秒后重试（第 {attempt + 1}/{self.max_retries} 次尝试）...")
+                        time.sleep(5)
+                        continue
+                    else:
+                        print(f"  ⚠️  生成定义时出错（429 限流，已重试 {self.max_retries} 次）: {e}")
+                        return f"<p>生成定义时出错: {str(e)}</p>"
+                
                 # 某些错误不应该重试（如认证错误、参数错误）
                 if any(keyword in error_msg for keyword in ['auth', 'permission', 'invalid', 'not found', '404']):
                     print(f"  ⚠️  生成定义时出错（不可重试）: {e}")
@@ -428,30 +508,49 @@ class ConceptExtractor:
         prompt = GET_SHORT_DEFINITION_PROMPT_TEMPLATE.replace("{{concept}}", concept)
         prompt = prompt.replace("{{domain}}", domain)
         
-        try:
-            response = self.client.models.generate_content(
-                model='gemini-2.0-flash-001',
-                contents=prompt,
-            )
-            
-            if hasattr(response, 'text'):
-                definition = response.text.strip()
-            elif hasattr(response, 'candidates') and len(response.candidates) > 0:
-                definition = response.candidates[0].content.parts[0].text.strip()
-            else:
-                definition = "概念定义"
-            
-            # 清理可能的额外内容
-            definition = definition.split('\n')[0].strip()
-            # 限制长度
-            if len(definition) > 30:
-                definition = definition[:27] + "..."
-            
-            return definition
-            
-        except Exception as e:
-            print(f"  ⚠️  生成短定义时出错: {e}")
-            return "概念定义"
+        last_exception = None
+        
+        for attempt in range(self.max_retries + 1):
+            try:
+                response = self.client.models.generate_content(
+                    model='gemini-2.0-flash-001',
+                    contents=prompt,
+                )
+                
+                if hasattr(response, 'text'):
+                    definition = response.text.strip()
+                elif hasattr(response, 'candidates') and len(response.candidates) > 0:
+                    definition = response.candidates[0].content.parts[0].text.strip()
+                else:
+                    definition = "概念定义"
+                
+                # 清理可能的额外内容
+                definition = definition.split('\n')[0].strip()
+                # 限制长度
+                if len(definition) > 30:
+                    definition = definition[:27] + "..."
+                
+                return definition
+                
+            except Exception as e:
+                last_exception = e
+                
+                # 检查是否是 429 限流错误
+                if self._is_rate_limit_error(e):
+                    if attempt < self.max_retries:
+                        print(f"  ⚠️  遇到限流错误（429），等待 5 秒后重试（第 {attempt + 1}/{self.max_retries} 次尝试）...")
+                        time.sleep(5)
+                        continue
+                    else:
+                        print(f"  ⚠️  生成短定义时出错（429 限流，已重试 {self.max_retries} 次）: {e}")
+                        return "概念定义"
+                else:
+                    # 其他错误，不重试
+                    print(f"  ⚠️  生成短定义时出错: {e}")
+                    return "概念定义"
+        
+        print(f"  ⚠️  生成短定义失败（重试 {self.max_retries} 次后）: {last_exception}")
+        return "概念定义"
     
     def close(self):
         """关闭客户端"""
@@ -715,66 +814,7 @@ def process_csv_file(book_id: Optional[str] = None, book_title: Optional[str] = 
     # 按章节ID排序
     sorted_chapters = sorted(chapters_dict.keys())
     
-    # 第一步：提取概念词（按章节分组，每组至少30个笔记）
-    print("=" * 60)
-    print("第一步：提取概念词（按章节分组，每组至少30个笔记）")
-    print("=" * 60)
-    
-    all_concepts = []
-    min_notes_per_group = 30
-    
-    i = 0
-    while i < len(sorted_chapters):
-        # 收集当前组的所有章节
-        group_chapters = []
-        group_rows = []
-        total_notes = 0
-        
-        # 从当前章节开始，累积到至少10个笔记
-        j = i
-        while j < len(sorted_chapters) and total_notes < min_notes_per_group:
-            chapter_uid = sorted_chapters[j]
-            chapter_rows = chapters_dict[chapter_uid]
-            mark_texts_count = len([row for row in chapter_rows if row.get('markText', '').strip()])
-            
-            group_chapters.append(chapter_uid)
-            group_rows.extend(chapter_rows)
-            total_notes += mark_texts_count
-            j += 1
-        
-        # 提取该组的 markText
-        mark_texts = [row.get('markText', '').strip() for row in group_rows if row.get('markText', '').strip()]
-        
-        if mark_texts:
-            chapter_names = []
-            for chapter_uid in group_chapters:
-                chapter_rows = chapters_dict[chapter_uid]
-                chapter_name = chapter_rows[0].get('chapterName', f'章节{chapter_uid}') if chapter_rows else f'章节{chapter_uid}'
-                chapter_names.append(chapter_name)
-            
-            print(f"\n处理组（章节 {group_chapters[0]}-{group_chapters[-1]}）: {', '.join(chapter_names)}（{len(mark_texts)} 条笔记）...")
-            concepts = extractor.extract_concepts(mark_texts, domain)
-            
-            if concepts:
-                print(f"  提取到 {len(concepts)} 个概念: {', '.join(concepts[:5])}{'...' if len(concepts) > 5 else ''}")
-                all_concepts.extend(concepts)
-            time.sleep(0.5)  # 避免请求过快
-        
-        # 移动到下一组（从最后一个已处理的章节的下一个开始）
-        i = j
-    
-    print(f"\n共提取到 {len(all_concepts)} 个概念词（含重复）")
-    
-    # 第二步：去重
-    print("\n" + "=" * 60)
-    print("第二步：去重（概念和形式）")
-    print("=" * 60)
-    
-    deduplicated_concepts = extractor.deduplicate_concepts(all_concepts)
-    print(f"去重后剩余 {len(deduplicated_concepts)} 个概念")
-    
-    # 检查输出文件是否已存在，加载已有的概念
-    existing_concepts = {}
+    # 检查输出文件是否已存在，确定从哪个章节开始处理
     if output_file is None:
         script_dir = Path(__file__).parent  # llm/scripts
         output_dir = script_dir.parent / "output" / "concepts"  # llm/output/concepts
@@ -783,6 +823,105 @@ def process_csv_file(book_id: Optional[str] = None, book_title: Optional[str] = 
     else:
         output_file_path = Path(output_file)
         output_file_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    # 如果文件已存在，找到最后一个出现的chapterID
+    last_chapter_id = None
+    if output_file_path.exists():
+        print(f"\n检测到已存在的概念文件: {output_file_path}")
+        try:
+            with open(output_file_path, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                max_chapter_id = None
+                for row in reader:
+                    chapter_range = row.get('chapterRange', '').strip()
+                    if chapter_range:
+                        # 解析chapterRange，可能是单个数字（如 "5"）或范围（如 "5-10"）
+                        try:
+                            if '-' in chapter_range:
+                                # 范围格式：提取结束的chapterID
+                                parts = chapter_range.split('-')
+                                if len(parts) == 2:
+                                    end_id = int(parts[1].strip())
+                                    if max_chapter_id is None or end_id > max_chapter_id:
+                                        max_chapter_id = end_id
+                            else:
+                                # 单个数字格式
+                                chapter_id = int(chapter_range.strip())
+                                if max_chapter_id is None or chapter_id > max_chapter_id:
+                                    max_chapter_id = chapter_id
+                        except ValueError:
+                            continue
+                
+                if max_chapter_id is not None:
+                    last_chapter_id = max_chapter_id
+                    print(f"  找到最后一个处理的章节ID: {last_chapter_id}")
+                    print(f"  将从章节 {last_chapter_id + 1} 开始处理（跳过已处理的章节）")
+        except Exception as e:
+            print(f"  ⚠️  读取已有概念文件失败: {e}")
+    
+    # 第一步：提取概念词（按章节分组处理）
+    print("\n" + "=" * 60)
+    print("第一步：提取概念词（按章节分组处理）")
+    print("=" * 60)
+    
+    all_concepts = []
+    
+    # 按章节逐个处理，跳过已处理的章节
+    processed_count = 0
+    skipped_count = 0
+    
+    for i, chapter_uid in enumerate(sorted_chapters, 1):
+        # 如果设置了last_chapter_id，跳过已处理的章节
+        if last_chapter_id is not None and chapter_uid <= last_chapter_id:
+            skipped_count += 1
+            chapter_name = chapters_dict[chapter_uid][0].get('chapterName', f'章节{chapter_uid}') if chapters_dict[chapter_uid] else f'章节{chapter_uid}'
+            print(f"\n[{i}/{len(sorted_chapters)}] 跳过章节 {chapter_uid}: {chapter_name}（已处理）")
+            continue
+        chapter_rows = chapters_dict[chapter_uid]
+        
+        # 提取该章节的 markText
+        mark_texts = [row.get('markText', '').strip() for row in chapter_rows if row.get('markText', '').strip()]
+        
+        if mark_texts:
+            chapter_name = chapter_rows[0].get('chapterName', f'章节{chapter_uid}') if chapter_rows else f'章节{chapter_uid}'
+            
+            print(f"\n[{i}/{len(sorted_chapters)}] 处理章节 {chapter_uid}: {chapter_name}（{len(mark_texts)} 条笔记）...")
+            concepts = extractor.extract_concepts(mark_texts, domain)
+            
+            if concepts:
+                print(f"  提取到 {len(concepts)} 个概念: {', '.join(concepts[:5])}{'...' if len(concepts) > 5 else ''}")
+                all_concepts.extend(concepts)
+                processed_count += 1
+            else:
+                print(f"  未提取到概念")
+            time.sleep(0.5)  # 避免请求过快
+        else:
+            chapter_name = chapter_rows[0].get('chapterName', f'章节{chapter_uid}') if chapter_rows else f'章节{chapter_uid}'
+            print(f"\n[{i}/{len(sorted_chapters)}] 跳过章节 {chapter_uid}: {chapter_name}（无笔记）")
+    
+    if skipped_count > 0:
+        print(f"\n跳过 {skipped_count} 个已处理的章节")
+    if processed_count > 0:
+        print(f"处理了 {processed_count} 个新章节")
+    print(f"\n共提取到 {len(all_concepts)} 个概念词（含重复）")
+    
+    # 第二步：去重
+    print("\n" + "=" * 60)
+    print("第二步：去重（概念和形式）")
+    print("=" * 60)
+    
+    # 如果本次没有提取到新概念，直接加载已有概念并返回
+    if not all_concepts:
+        print(f"\n⚠️  本次未提取到新概念")
+        if output_file_path.exists():
+            print(f"  将保留已有的概念文件")
+        return
+    
+    deduplicated_concepts = extractor.deduplicate_concepts(all_concepts)
+    print(f"去重后剩余 {len(deduplicated_concepts)} 个概念")
+    
+    # 检查输出文件是否已存在，加载已有的概念
+    existing_concepts = {}
     
     # 如果文件已存在，读取已有的概念
     if output_file_path.exists():

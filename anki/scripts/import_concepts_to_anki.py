@@ -29,13 +29,15 @@ try:
     project_root = script_dir.parent.parent  # 项目根目录
     sys.path.insert(0, str(project_root))
     from llm.scripts.extract_concepts import process_csv_file as generate_concepts
-except ImportError:
+except (ImportError, ModuleNotFoundError) as e:
     # 如果导入失败，尝试直接导入
     try:
         sys.path.insert(0, str(Path(__file__).parent.parent.parent / "llm" / "scripts"))
         from extract_concepts import process_csv_file as generate_concepts
-    except ImportError:
+    except (ImportError, ModuleNotFoundError) as e2:
+        # 导入失败，可能是依赖缺失（如 google-generativeai）
         generate_concepts = None
+        # 不在这里打印错误，让调用方处理
 
 
 class AnkiConnectClient:
@@ -809,8 +811,12 @@ def main():
                 print(f"\n🔄 检测到 --fetch 参数，将先重新 fetch 数据并生成 concepts...")
                 if generate_concepts is None:
                     print(f"\n❌ 错误：无法导入 extract_concepts 模块，无法重新生成 concepts")
-                    print(f"请手动运行以下命令重新生成 concepts：")
-                    print(f"  python llm/scripts/extract_concepts.py --book-id {args.book_id} --fetch")
+                    print(f"可能的原因：")
+                    print(f"  1. 缺少依赖模块（如 google-generativeai）")
+                    print(f"     请运行: pip install google-generativeai")
+                    print(f"  2. Python 路径配置问题")
+                    print(f"\n请手动运行以下命令重新生成 concepts：")
+                    print(f"  python llm/scripts/extract_concepts.py --book-name \"{args.book_name or 'BOOK_NAME'}\" --fetch")
                     return
                 
                 print(f"\n🔄 正在重新生成 concepts CSV 文件（使用最新数据）...")
@@ -843,7 +849,11 @@ def main():
                 if args.auto_generate:
                     if generate_concepts is None:
                         print(f"\n❌ 错误：无法导入 extract_concepts 模块，无法自动生成 concepts")
-                        print(f"请手动运行以下命令生成 concepts：")
+                        print(f"可能的原因：")
+                        print(f"  1. 缺少依赖模块（如 google-generativeai）")
+                        print(f"     请运行: pip install google-generativeai")
+                        print(f"  2. Python 路径配置问题")
+                        print(f"\n请手动运行以下命令生成 concepts：")
                         print(f"  python llm/scripts/extract_concepts.py --book-id {args.book_id}")
                         return
                     
@@ -887,8 +897,12 @@ def main():
                     print(f"\n🔄 检测到 --fetch 参数，将先重新 fetch 数据并生成 concepts...")
                     if generate_concepts is None:
                         print(f"\n❌ 错误：无法导入 extract_concepts 模块，无法重新生成 concepts")
-                        print(f"请手动运行以下命令重新生成 concepts：")
-                        print(f"  python llm/scripts/extract_concepts.py --title \"{args.book_name}\" --fetch")
+                        print(f"可能的原因：")
+                        print(f"  1. 缺少依赖模块（如 google-generativeai）")
+                        print(f"     请运行: pip install google-generativeai")
+                        print(f"  2. Python 路径配置问题")
+                        print(f"\n请手动运行以下命令重新生成 concepts：")
+                        print(f"  python llm/scripts/extract_concepts.py --book-name \"{args.book_name}\" --fetch")
                         return
                     
                     print(f"\n🔄 正在重新生成 concepts CSV 文件（使用最新数据）...")
@@ -922,8 +936,12 @@ def main():
                     if args.auto_generate:
                         if generate_concepts is None:
                             print(f"\n❌ 错误：无法导入 extract_concepts 模块，无法自动生成 concepts")
-                            print(f"请手动运行以下命令生成 concepts：")
-                            print(f"  python llm/scripts/extract_concepts.py --title \"{args.book_name}\"")
+                            print(f"可能的原因：")
+                            print(f"  1. 缺少依赖模块（如 google-generativeai）")
+                            print(f"     请运行: pip install google-generativeai")
+                            print(f"  2. Python 路径配置问题")
+                            print(f"\n请手动运行以下命令生成 concepts：")
+                            print(f"  python llm/scripts/extract_concepts.py --book-name \"{args.book_name}\"")
                             return
                         
                         print(f"\n🔄 正在自动生成 concepts CSV 文件...")
